@@ -36,8 +36,11 @@ if ! which docker &>/dev/null || ! docker ps |grep -q "CONTAINER"; then
   exit_w_err "Docker is not installed or is not accessible from the current user. Forgot to add the user to the docker group?"
 fi
 
+echo "[Install] Install system-level tools and dependencies..."
+sudo apt-get install -y -q android-tools-adb android-tools-fastboot
+
 echo "[Install] Downloading android-cuttlefish and adeb..."
-mkdir -p out; cd out; 
+mkdir -p deps; cd deps; 
 WORKDIR=$(pwd)
 if [[ ! -d "adeb" ]]; then
   git clone https://github.com/joelagnel/adeb.git

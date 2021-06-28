@@ -14,10 +14,11 @@ Matrisea (/ˈmeɪtrɪskiː/) is a cloud-based Android reversing platform that pr
 
 ## Quick Start
 ```
-git clone
+git clone https://github.com/senyuuri/matrisea
 cd matrisea; ./setup.sh
 
 # reboot to install kernel modules and apply udev rules
-# after reboot, run docker-compose and visit  http://127.0.0.1:10080/
+# after reboot, run docker-compose and visit http://127.0.0.1:10080/
 docker-compose up -d
 ```
+
