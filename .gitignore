@@ -1,3 +1,5 @@
 deps
+images
 backend/vmm/vmm
+backend/api/api
 frontend/node_modules

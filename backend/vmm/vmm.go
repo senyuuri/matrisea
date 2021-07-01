@@ -1,4 +1,4 @@
-package main
+package vmm
 
 import (
 	"bufio"
@@ -16,9 +16,10 @@ import (
 )
 
 var (
-	VMPrefix       = "matrisea-cvd-"     // container name prefix
-	DefaultNetwork = "cvd-bridge"        // default docker network name
-	CFImage        = "cuttlefish:latest" // cuttlefish image
+	VMPrefix       = "matrisea-cvd-"                  // container name prefix
+	DefaultNetwork = "cvd-bridge"                     // default docker network name
+	CFImage        = "cuttlefish:latest"              // cuttlefish image
+	ImagePath      = "/home/senyuuri/matrisea/images" // TODO read it from env
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -45,7 +46,6 @@ func NewVmm() *Vmm {
 // assume both the cuttlefish image and the default network exist on the host
 func (v *Vmm) CreateVM() error {
 	ctx := context.Background()
-	rand.Seed(time.Now().UnixNano())
 	vmName := VMPrefix + randSeq(6)
 	fmt.Printf(vmName)
 
@@ -187,10 +187,6 @@ func getCFContainerName(container types.Container) string {
 	return ""
 }
 
-func main() {
-	vmm := NewVmm()
-	vmm.pruneVMs()
-	vmm.CreateVM()
-	vmList := vmm.ListVM()
-	vmm.StartVM(getCFContainerName(vmList[0]), "")
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }
