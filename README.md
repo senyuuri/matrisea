@@ -1,6 +1,6 @@
 # Matrisea
 
-Matrisea (/ˈmeɪtrɪskiː/) is a cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
+Matrisea (/ˈmeɪtrɪksiː/) is a cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
 
 **Features**
 - Provide high fidelity virtual devices based on android-cuttlefish (crosvm+KVM) that guarantees full fidelity with Android framework
