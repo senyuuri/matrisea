@@ -1,2 +1,3 @@
 deps
 backend/vmm/vmm
+frontend/node_modules
