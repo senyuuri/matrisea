@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
+	"os"
 	"strings"
 	"time"
 
@@ -19,7 +21,8 @@ var (
 	VMPrefix       = "matrisea-cvd-"                  // container name prefix
 	DefaultNetwork = "cvd-bridge"                     // default docker network name
 	CFImage        = "cuttlefish:latest"              // cuttlefish image
-	ImagePath      = "/home/senyuuri/matrisea/images" // TODO read it from env
+	ImageDir       = "/home/senyuuri/matrisea/images" // TODO read it from env
+	WorkDir        = "/home/vsoc-01"                  // workdir inside container
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -96,6 +99,7 @@ func (v *Vmm) StartVM(containerName string, options string) error {
 	fmt.Printf("StartVM: %s --> %s\n", containerName, options)
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+		User:         "vsoc-01",
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
@@ -123,8 +127,32 @@ func (v *Vmm) StartVM(containerName string, options string) error {
 }
 
 // kill launch_cvd process in the container
-func (v *Vmm) StopVM() {
-	// call
+func (v *Vmm) StopVM(containerName string) error {
+	fmt.Printf("StopVM: %s --> %s\n", containerName)
+	ctx := context.Background()
+	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+		User:         "vsoc-01",
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"/bin/bash", "-c", "./bin/stop_cvd"},
+		Tty:          true,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
+	if err != nil {
+		panic(err)
+	}
+
+	defer hijackedResp.Close()
+	scanner := bufio.NewScanner(hijackedResp.Conn)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+	return nil
 }
 
 func (v *Vmm) ListVM() []types.Container {
@@ -160,8 +188,32 @@ func (v *Vmm) pruneVMs() {
 	}
 }
 
-func (v *Vmm) InstallAdeb() {
+func (v *Vmm) installAdeb() {
 	// call
+}
+
+// srcPath must be a tar archive
+func (v *Vmm) copyToContainer(srcPath string, containerID string, dstPath string) error {
+	// TODO support loding non-tar files and directories. check if src is not a tar file, tar first
+	archive, _ := os.Open(srcPath)
+	defer archive.Close()
+
+	opts := types.CopyToContainerOptions{}
+	if err := v.Client.CopyToContainer(context.TODO(), containerID, dstPath, bufio.NewReader(archive), opts); err != nil {
+		log.Fatalf("%v", err)
+	}
+	return nil
+}
+
+// copy aosp and cvd image into the container at container creation time
+func (v *Vmm) loadImages(containerID string) {
+	if err := v.copyToContainer("/home/senyuuri/matrisea/images/cvd-host_package.tar", containerID, WorkDir); err != nil {
+		log.Fatalf("%v", err)
+	}
+	// TODO unzip and tar before pass to vmm
+	if err := v.copyToContainer("/home/senyuuri/matrisea/images/aosp_cf_x86_64_phone-img-7441291.tar", containerID, WorkDir); err != nil {
+		log.Fatalf("%v", err)
+	}
 }
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
