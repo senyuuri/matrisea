@@ -36,8 +36,22 @@ if ! which docker &>/dev/null || ! docker ps |grep -q "CONTAINER"; then
   exit_w_err "Docker is not installed or is not accessible from the current user. Forgot to add the user to the docker group?"
 fi
 
+echo "[Dependency] Load vsock kernel modules..."
+if lsmod | grep -q vmw_vsock; then 
+  read -p "===| vmware-tool is using vsock. (Recommended) Disable open-vm-tools.service and unload conflicting kernel modules? (y/n)"  -n 1 -r
+  echo 
+  if [[ $REPLY =~ ^[Yy]$ ]]
+  then
+      sudo systemctl disable open-vm-tools.service
+      echo "===| open-vm-tools.service service diabled."
+      sudo rmmod vhost_vsock vmw_vsock_virtio_transport_common vsock
+      echo "===| unmounted confliting kernel modules: vhost_vsock vmw_vsock_virtio_transport_common vsock"
+  fi
+fi
+sudo modprobe vhost_vsock vhost_net
+
 echo "[Install] Install system-level tools and dependencies..."
-sudo apt-get install -y -q android-tools-adb android-tools-fastboot
+sudo apt-get install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper=12.\* config-package-dev init-system-helpers=1.56\*
 
 echo "[Install] Downloading android-cuttlefish and adeb..."
 mkdir -p deps; cd deps; 
@@ -56,13 +70,11 @@ debuild -i -us -uc -b > /dev/null
 sudo dpkg -i ../cuttlefish-common_*_amd64.deb || sudo apt-get install -f -q
 
 echo "[Install] Building cuttlefish VM image..."
-sudo apt install -y git
-sudo modprobe vhost_vsock vhost_net
 ./build.sh
 cd "${WORKDIR}"; 
 
 echo ""
-echo "REBOOT REQUIRED: Seafarm installed successfully. Reboot to install additional kernel modules and apply udev rules."
+echo "REBOOT REQUIRED: Matrisea installed successfully. Reboot to install additional kernel modules and apply udev rules."
 echo ""
 echo "After reboot, run docker-compose up and visit the url below to access the web panel:"
 echo ""
