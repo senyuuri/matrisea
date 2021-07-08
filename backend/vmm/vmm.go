@@ -3,6 +3,7 @@ package vmm
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -18,36 +19,36 @@ import (
 )
 
 var (
-	VMPrefix       = "matrisea-cvd-"                  // container name prefix
-	DefaultNetwork = "cvd-bridge"                     // default docker network name
-	CFImage        = "cuttlefish:latest"              // cuttlefish image
-	ImageDir       = "/home/senyuuri/matrisea/images" // TODO read it from env
-	WorkDir        = "/home/vsoc-01"                  // workdir inside container
+	VMPrefix       = "matrisea-cvd-"                   // container name prefix
+	DefaultNetwork = "cvd-bridge"                      // default docker network name
+	CFImage        = "cuttlefish:latest"               // cuttlefish image
+	ImageDir       = "/data/workspace/matrisea/images" // TODO read it from env
+	WorkDir        = "/home/vsoc-01"                   // workdir inside container
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
 // A cuttlefish VM is essentially a crosvm process running in a docker container.
 // Due to the one-one mapping, the word `VM` and `container` are sometimes used interchagably.
-type Vmm struct {
+type VMM struct {
 	Client *client.Client // Docker Engine client
 }
 
-type VmmError struct {
+type VMMError struct {
 	msg string // description of error
 }
 
-func (e *VmmError) Error() string { return e.msg }
+func (e *VMMError) Error() string { return e.msg }
 
-func NewVmm() *Vmm {
+func NewVMM() *VMM {
 	cli, err := client.NewEnvClient()
 	if err != nil {
 		panic(err)
 	}
-	return &Vmm{Client: cli}
+	return &VMM{Client: cli}
 }
 
 // assume both the cuttlefish image and the default network exist on the host
-func (v *Vmm) CreateVM() error {
+func (v *VMM) CreateVM() error {
 	ctx := context.Background()
 	vmName := VMPrefix + randSeq(6)
 	fmt.Printf(vmName)
@@ -95,7 +96,7 @@ func (v *Vmm) CreateVM() error {
 }
 
 // run launch_cvd inside of a running container
-func (v *Vmm) StartVM(containerName string, options string) error {
+func (v *VMM) StartVM(containerName string, options string) error {
 	fmt.Printf("StartVM: %s --> %s\n", containerName, options)
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
@@ -127,8 +128,8 @@ func (v *Vmm) StartVM(containerName string, options string) error {
 }
 
 // kill launch_cvd process in the container
-func (v *Vmm) StopVM(containerName string) error {
-	fmt.Printf("StopVM: %s --> %s\n", containerName)
+func (v *VMM) StopVM(containerName string) error {
+	fmt.Printf("StopVM: %s\n", containerName)
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
@@ -155,10 +156,11 @@ func (v *Vmm) StopVM(containerName string) error {
 	return nil
 }
 
-func (v *Vmm) ListVM() []types.Container {
+func (v *VMM) ListVM() ([]types.Container, error) {
+	return nil, errors.New("TEST ERROR")
 	containers, err := v.Client.ContainerList(context.Background(), types.ContainerListOptions{All: true})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	vmList := []types.Container{}
 	for _, container := range containers {
@@ -167,16 +169,16 @@ func (v *Vmm) ListVM() []types.Container {
 			fmt.Printf("%s %s %s\n", container.ID[:10], container.Names, container.Image)
 		}
 	}
-	return vmList
+	return vmList, nil
 }
 
-func (v *Vmm) removeVM(containerID string) error {
+func (v *VMM) removeVM(containerID string) error {
 	return v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{})
 }
 
 // remove all managed VMs
-func (v *Vmm) pruneVMs() {
-	vmList := v.ListVM()
+func (v *VMM) pruneVMs() {
+	vmList, _ := v.ListVM()
 	for _, vm := range vmList {
 		err := v.Client.ContainerRemove(context.Background(), vm.ID, types.ContainerRemoveOptions{
 			Force: true,
@@ -188,14 +190,20 @@ func (v *Vmm) pruneVMs() {
 	}
 }
 
-func (v *Vmm) installAdeb() {
+func (v *VMM) installAdeb() {
 	// call
 }
 
 // srcPath must be a tar archive
-func (v *Vmm) copyToContainer(srcPath string, containerID string, dstPath string) error {
+func (v *VMM) copyToContainer(srcPath string, containerID string, dstPath string) error {
 	// TODO support loding non-tar files and directories. check if src is not a tar file, tar first
-	archive, _ := os.Open(srcPath)
+	archive, err := os.Open(srcPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Fatalf("Failed to load a file into the container because the file does not exist: %s\n", srcPath)
+		}
+		fmt.Println(err)
+	}
 	defer archive.Close()
 
 	opts := types.CopyToContainerOptions{}
@@ -206,12 +214,12 @@ func (v *Vmm) copyToContainer(srcPath string, containerID string, dstPath string
 }
 
 // copy aosp and cvd image into the container at container creation time
-func (v *Vmm) loadImages(containerID string) {
-	if err := v.copyToContainer("/home/senyuuri/matrisea/images/cvd-host_package.tar", containerID, WorkDir); err != nil {
+func (v *VMM) loadImages(containerID string) {
+	if err := v.copyToContainer("/data/workspace/matrisea/images/cvd-host_package.tar", containerID, WorkDir); err != nil {
 		log.Fatalf("%v", err)
 	}
 	// TODO unzip and tar before pass to vmm
-	if err := v.copyToContainer("/home/senyuuri/matrisea/images/aosp_cf_x86_64_phone-img-7441291.tar", containerID, WorkDir); err != nil {
+	if err := v.copyToContainer("/data/workspace/matrisea/images/aosp_cf_x86_64_phone-img-7441291.tar", containerID, WorkDir); err != nil {
 		log.Fatalf("%v", err)
 	}
 }
@@ -233,7 +241,7 @@ func getCFContainerName(container types.Container) string {
 		// docker container names all start with "/"
 		prefix := "/" + VMPrefix
 		if strings.HasPrefix(name, prefix) {
-			return name
+			return name[1:]
 		}
 	}
 	return ""

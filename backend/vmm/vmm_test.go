@@ -5,7 +5,7 @@ import (
 )
 
 func TestVMMIntegration(t *testing.T) {
-	vmm := NewVmm()
+	vmm := NewVMM()
 	vmm.pruneVMs()
 	vmm.CreateVM()
 	vmList := vmm.ListVM()
