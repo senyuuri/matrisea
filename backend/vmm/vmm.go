@@ -157,7 +157,10 @@ func (v *VMM) ListVM() ([]types.Container, error) {
 }
 
 func (v *VMM) RemoveVM(containerID string) error {
-	return v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{})
+	// TODO check if crosvm process has been stopped
+	return v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{
+		Force: true,
+	})
 }
 
 // remove all managed VMs
@@ -198,6 +201,9 @@ func (v *VMM) PrintVMs() {
 
 // srcPath must be a tar archive
 func (v *VMM) copyToContainer(srcPath string, containerID string, dstPath string) error {
+	log.Printf("Load file into container %s:\n", containerID)
+	log.Printf("src: %s\n", srcPath)
+	log.Printf("dst: %s\n", dstPath)
 	// TODO support loding non-tar files and directories. check if src is not a tar file, tar first
 	archive, err := os.Open(srcPath)
 	if err != nil {
@@ -221,7 +227,7 @@ func (v *VMM) loadImages(containerID string) {
 		log.Fatalf("%v", err)
 	}
 	// TODO unzip and tar before pass to vmm
-	if err := v.copyToContainer("/data/workspace/matrisea/images/aosp_cf_x86_64_phone-img-7441291.tar", containerID, WorkDir); err != nil {
+	if err := v.copyToContainer("/data/workspace/matrisea/images/aosp_cf_x86_64_phone-img-7530437.tar", containerID, WorkDir); err != nil {
 		log.Fatalf("%v", err)
 	}
 }

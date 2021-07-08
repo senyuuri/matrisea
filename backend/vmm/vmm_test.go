@@ -11,9 +11,8 @@ func TestVMMIntegration(t *testing.T) {
 	vmm.PruneVMs()
 	id, _ := vmm.CreateVM()
 	vmm.PrintVMs()
-	fmt.Println(vmm.getContainerNameByID(id))
+	name, _ := vmm.getContainerNameByID(id)
 
-	// vmList, _ := vmm.ListVM()
-	// vmm.loadImages(getCFContainerName(vmList[0]))
-	// vmm.StartVM(getCFContainerName(vmList[0]), "")
+	vmm.loadImages(name)
+	vmm.StartVM(name, "")
 }
