@@ -3,7 +3,6 @@ package vmm
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -40,7 +39,7 @@ type VMMError struct {
 func (e *VMMError) Error() string { return e.msg }
 
 func NewVMM() *VMM {
-	cli, err := client.NewEnvClient()
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
@@ -48,10 +47,9 @@ func NewVMM() *VMM {
 }
 
 // assume both the cuttlefish image and the default network exist on the host
-func (v *VMM) CreateVM() error {
+func (v *VMM) CreateVM() (containerID string, err error) {
 	ctx := context.Background()
 	vmName := VMPrefix + randSeq(6)
-	fmt.Printf(vmName)
 
 	// create a new VM
 	containerConfig := &container.Config{
@@ -86,44 +84,43 @@ func (v *VMM) CreateVM() error {
 
 	resp, err := v.Client.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, vmName)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	//log.Println(resp.ID)
 	if err := v.Client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		panic(err)
+		return "", err
 	}
-	return nil
+	log.Printf("Created VM %s %s\n", vmName, resp.ID)
+	return resp.ID, nil
 }
 
 // run launch_cvd inside of a running container
 func (v *VMM) StartVM(containerName string, options string) error {
-	fmt.Printf("StartVM: %s --> %s\n", containerName, options)
+	log.Printf("StartVM %s with options: %s\n", containerName, options)
 	ctx := context.Background()
-	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+	_, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          []string{"/bin/bash", "-c", "./bin/launch_cvd", options},
-		//Cmd: []string{"/bin/sh", "-c", "ls -lah"},
-		Tty: true,
+		Tty:          true,
 	})
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
-	if err != nil {
-		panic(err)
-	}
+	// hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
+	// if err != nil {
+	// 	return err
+	// }
 
-	defer hijackedResp.Close()
-	// input of interactive shell
-	// hijackedResp.Conn.Write([]byte("ls\r"))
-	scanner := bufio.NewScanner(hijackedResp.Conn)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
-	}
+	// defer hijackedResp.Close()
+	// // input of interactive shell
+	// // hijackedResp.Conn.Write([]byte("ls\r"))
+	// scanner := bufio.NewScanner(hijackedResp.Conn)
+	// for scanner.Scan() {
+	// 	fmt.Println(scanner.Text())
+	// }
 	return nil
 }
 
@@ -131,7 +128,7 @@ func (v *VMM) StartVM(containerName string, options string) error {
 func (v *VMM) StopVM(containerName string) error {
 	fmt.Printf("StopVM: %s\n", containerName)
 	ctx := context.Background()
-	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+	_, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
 		AttachStdin:  true,
 		AttachStdout: true,
@@ -140,24 +137,12 @@ func (v *VMM) StopVM(containerName string) error {
 		Tty:          true,
 	})
 	if err != nil {
-		panic(err)
-	}
-
-	hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
-	if err != nil {
-		panic(err)
-	}
-
-	defer hijackedResp.Close()
-	scanner := bufio.NewScanner(hijackedResp.Conn)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+		return err
 	}
 	return nil
 }
 
 func (v *VMM) ListVM() ([]types.Container, error) {
-	return nil, errors.New("TEST ERROR")
 	containers, err := v.Client.ContainerList(context.Background(), types.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err
@@ -166,18 +151,18 @@ func (v *VMM) ListVM() ([]types.Container, error) {
 	for _, container := range containers {
 		if name := getCFContainerName(container); name != "" {
 			vmList = append(vmList, container)
-			fmt.Printf("%s %s %s\n", container.ID[:10], container.Names, container.Image)
 		}
 	}
 	return vmList, nil
 }
 
-func (v *VMM) removeVM(containerID string) error {
+func (v *VMM) RemoveVM(containerID string) error {
 	return v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{})
 }
 
 // remove all managed VMs
-func (v *VMM) pruneVMs() {
+func (v *VMM) PruneVMs() {
+	log.Println("PruneVMs called")
 	vmList, _ := v.ListVM()
 	for _, vm := range vmList {
 		err := v.Client.ContainerRemove(context.Background(), vm.ID, types.ContainerRemoveOptions{
@@ -186,12 +171,29 @@ func (v *VMM) pruneVMs() {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("Removed %s\n", vm.ID)
+		log.Printf("Removed VM %s\n", vm.ID[:10])
 	}
 }
 
 func (v *VMM) installAdeb() {
 	// call
+}
+
+func (v *VMM) getContainerNameByID(containerID string) (name string, err error) {
+	containerJSON, err := v.Client.ContainerInspect(context.Background(), containerID)
+	if err != nil {
+		return "", err
+	}
+	return containerJSON.Name, nil
+}
+
+func (v *VMM) PrintVMs() {
+	vmList, _ := v.ListVM()
+	for i, container := range vmList {
+		if name := getCFContainerName(container); name != "" {
+			log.Printf("[%d] %s %s %s\n", i, container.ID[:10], container.Names, container.Image)
+		}
+	}
 }
 
 // srcPath must be a tar archive
@@ -249,4 +251,5 @@ func getCFContainerName(container types.Container) string {
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 }

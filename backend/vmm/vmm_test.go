@@ -1,15 +1,19 @@
 package vmm
 
 import (
+	"fmt"
 	"testing"
 )
 
 func TestVMMIntegration(t *testing.T) {
+	fmt.Printf("aaaa")
 	vmm := NewVMM()
-	vmm.pruneVMs()
-	vmm.CreateVM()
-	vmList := vmm.ListVM()
+	vmm.PruneVMs()
+	id, _ := vmm.CreateVM()
+	vmm.PrintVMs()
+	fmt.Println(vmm.getContainerNameByID(id))
 
-	vmm.loadImages(getCFContainerName(vmList[0]))
-	vmm.StartVM(getCFContainerName(vmList[0]), "")
+	// vmList, _ := vmm.ListVM()
+	// vmm.loadImages(getCFContainerName(vmList[0]))
+	// vmm.StartVM(getCFContainerName(vmList[0]), "")
 }

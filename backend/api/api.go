@@ -19,42 +19,54 @@ func main() {
 		v1.POST("/vms/", createVM)
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
-		v1.DELETE("/vms/:name/", deleteVM)
+		v1.DELETE("/vms/:name/", removeVM)
 	}
 	router.Run()
 }
 
+// TODO get crosvm process status in running containers
 func listVM(c *gin.Context) {
 	vmList, err := v.ListVM()
 	if err != nil {
-		c.JSON(500, gin.H{
-			"error": err.Error(),
-		})
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(200, vmList)
 }
 
 func createVM(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"message": "pong",
-	})
+	containerID, err := v.CreateVM()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"container_id": containerID})
 }
 
 func startVM(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"message": "pong",
-	})
+	name := c.Param("name")
+	// TODO add default options
+	if err := v.StartVM(name, ""); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "ok"})
 }
 
 func stopVM(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"message": "pong",
-	})
+	name := c.Param("name")
+	if err := v.StopVM(name); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "ok"})
 }
 
-func deleteVM(c *gin.Context) {
-	c.JSON(200, gin.H{
-		"message": "pong",
-	})
+func removeVM(c *gin.Context) {
+	name := c.Param("name")
+	if err := v.RemoveVM(name); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "ok"})
 }
