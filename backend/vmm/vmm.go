@@ -24,7 +24,7 @@ var (
 	DefaultNetwork = "cvd-bridge"                      // default docker network name
 	CFImage        = "cuttlefish:latest"               // cuttlefish image
 	ImageDir       = "/data/workspace/matrisea/images" // TODO read it from env
-	WorkDir        = "/home/vsoc-01"                   // workdir inside container
+	WorkDir        = "/root"                           // workdir inside container
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -114,15 +114,15 @@ func (v *VMM) CreateVM() (name string, err error) {
 }
 
 // run launch_cvd inside of a running container
+// notice StartVM() doesn't check for succeesful VM boot as it could take a long time
 func (v *VMM) StartVM(containerName string, options string) error {
 	log.Printf("StartVM %s with options: %s\n", containerName, options)
 	ctx := context.Background()
 	_, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
-		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{"/bin/bash", "-c", "./bin/launch_cvd", options},
+		Cmd:          []string{WorkDir + "/bin/launch_cvd", options, "&>cvd_start.log"},
 		Tty:          true,
 	})
 	if err != nil {
@@ -139,6 +139,7 @@ func (v *VMM) StartVM(containerName string, options string) error {
 	// // hijackedResp.Conn.Write([]byte("ls\r"))
 	// scanner := bufio.NewScanner(hijackedResp.Conn)
 	// for scanner.Scan() {
+
 	// 	fmt.Println(scanner.Text())
 	// }
 	return nil
@@ -148,18 +149,35 @@ func (v *VMM) StartVM(containerName string, options string) error {
 func (v *VMM) StopVM(containerName string) error {
 	fmt.Printf("StopVM: %s\n", containerName)
 	ctx := context.Background()
-	_, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{"/bin/bash", "-c", "./bin/stop_cvd"},
+		Cmd:          []string{WorkDir + "/bin/stop_cvd"},
 		Tty:          true,
 	})
 	if err != nil {
 		return err
 	}
-	return nil
+
+	hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
+	if err != nil {
+		return err
+	}
+
+	defer hijackedResp.Close()
+	// input of interactive shell
+	// hijackedResp.Conn.Write([]byte("ls\r"))
+	scanner := bufio.NewScanner(hijackedResp.Conn)
+	for scanner.Scan() {
+		line := scanner.Text()
+		fmt.Println(line)
+		if strings.Contains(line, "Successful") {
+			return nil
+		}
+	}
+	return &VMMError{msg: "failed to stop the VM"}
 }
 
 func (v *VMM) ListVM() ([]types.Container, error) {
@@ -194,9 +212,7 @@ func (v *VMM) PruneVMs() {
 	log.Println("PruneVMs called")
 	vmList, _ := v.ListVM()
 	for _, vm := range vmList {
-		err := v.Client.ContainerRemove(context.Background(), vm.ID, types.ContainerRemoveOptions{
-			Force: true,
-		})
+		err := v.RemoveVM(vm.ID)
 		if err != nil {
 			panic(err)
 		}
