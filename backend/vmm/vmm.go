@@ -7,6 +7,8 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/exec"
+	"path"
 	"strings"
 	"time"
 
@@ -29,7 +31,9 @@ var (
 // A cuttlefish VM is essentially a crosvm process running in a docker container.
 // Due to the one-one mapping, the word `VM` and `container` are sometimes used interchagably.
 type VMM struct {
-	Client *client.Client // Docker Engine client
+	Client    *client.Client // Docker Engine client
+	UploadDir string         // path of uploaded files
+	ImageDir  string         // path of device images
 }
 
 type VMMError struct {
@@ -38,18 +42,28 @@ type VMMError struct {
 
 func (e *VMMError) Error() string { return e.msg }
 
-func NewVMM() *VMM {
+func NewVMM(imageDir string, uploadDir string) *VMM {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
-	return &VMM{Client: cli}
+	log.Printf("UPLOAD_DIR=%s\n", uploadDir)
+	log.Printf("IMAGE_DIR=%s\n", imageDir)
+
+	return &VMM{
+		Client:    cli,
+		UploadDir: uploadDir,
+		ImageDir:  imageDir,
+	}
 }
 
 // assume both the cuttlefish image and the default network exist on the host
-func (v *VMM) CreateVM() (containerID string, err error) {
+func (v *VMM) CreateVM() (name string, err error) {
 	ctx := context.Background()
 	vmName := VMPrefix + randSeq(6)
+
+	// dedicate a folder on the host for storing VM images
+	imageDir := v.createImageFolder(vmName)
 
 	// create a new VM
 	containerConfig := &container.Config{
@@ -71,6 +85,12 @@ func (v *VMM) CreateVM() (containerID string, err error) {
 				Target:   "/sys/fs/cgroup",
 				ReadOnly: true,
 			},
+			{
+				Type:     mount.TypeBind,
+				Source:   imageDir,
+				Target:   WorkDir,
+				ReadOnly: false,
+			},
 		},
 	}
 
@@ -90,7 +110,7 @@ func (v *VMM) CreateVM() (containerID string, err error) {
 		return "", err
 	}
 	log.Printf("Created VM %s %s\n", vmName, resp.ID)
-	return resp.ID, nil
+	return vmName, nil
 }
 
 // run launch_cvd inside of a running container
@@ -158,9 +178,15 @@ func (v *VMM) ListVM() ([]types.Container, error) {
 
 func (v *VMM) RemoveVM(containerID string) error {
 	// TODO check if crosvm process has been stopped
-	return v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{
+	err := v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{
 		Force: true,
 	})
+	if err != nil {
+		return err
+	}
+	name, _ := v.getContainerNameByID(containerID)
+	v.deleteImageFolder(name)
+	return nil
 }
 
 // remove all managed VMs
@@ -200,7 +226,7 @@ func (v *VMM) PrintVMs() {
 }
 
 // srcPath must be a tar archive
-func (v *VMM) copyToContainer(srcPath string, containerID string, dstPath string) error {
+func (v *VMM) CopyToContainer(srcPath string, containerID string, dstPath string) error {
 	log.Printf("Load file into container %s:\n", containerID)
 	log.Printf("src: %s\n", srcPath)
 	log.Printf("dst: %s\n", dstPath)
@@ -221,15 +247,58 @@ func (v *VMM) copyToContainer(srcPath string, containerID string, dstPath string
 	return nil
 }
 
-// copy aosp and cvd image into the container at container creation time
-func (v *VMM) loadImages(containerID string) {
-	if err := v.copyToContainer("/data/workspace/matrisea/images/cvd-host_package.tar", containerID, WorkDir); err != nil {
-		log.Fatalf("%v", err)
+// create a folder on the host and bind mount it to a given container
+// preferred over CopyToContainer() as it saves both time and space
+// (for keeping two copies of images larger than 10GB)
+func (v *VMM) createImageFolder(containerName string) string {
+	path := path.Join(v.ImageDir, containerName)
+	err := os.MkdirAll(path, 0755)
+	if err != nil {
+		log.Fatal(err)
 	}
-	// TODO unzip and tar before pass to vmm
-	if err := v.copyToContainer("/data/workspace/matrisea/images/aosp_cf_x86_64_phone-img-7530437.tar", containerID, WorkDir); err != nil {
-		log.Fatalf("%v", err)
+	log.Printf("Created image folder %s for container %s\n", path, containerName)
+	return path
+}
+
+func (v *VMM) deleteImageFolder(containerName string) error {
+	path := path.Join(v.ImageDir, containerName)
+	err := os.Remove(path)
+	if err != nil {
+		log.Fatal(err)
 	}
+	log.Printf("Deleted image folder %s for container %s\n", path, containerName)
+	return nil
+}
+
+// copy aosp and cvd image into the container's image folder
+// expect aosp image to be .zip and cvd image to be .tar, as per android CI's default packaing
+func (v *VMM) LoadImages(containerName string, aosp_zip string, cvd_tar string) error {
+	if _, err := os.Stat(aosp_zip); os.IsNotExist(err) {
+		return err
+	}
+	if _, err := os.Stat(cvd_tar); os.IsNotExist(err) {
+		return err
+	}
+	imageDir := path.Join(v.ImageDir, containerName)
+	cmd := exec.Command("unzip", aosp_zip, "-d", imageDir)
+	if err := cmd.Start(); err != nil {
+		panic(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			log.Fatalf("Unzip failed with error code %d", exitError.ExitCode())
+		}
+	}
+	cmd = exec.Command("tar", "-C", imageDir, "-xzf", cvd_tar)
+	if err := cmd.Start(); err != nil {
+		panic(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			log.Fatalf("Untar failed with error code %d", exitError.ExitCode())
+		}
+	}
+	return nil
 }
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")

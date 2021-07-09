@@ -1,15 +1,22 @@
 package main
 
 import (
+	"os"
+
 	"github.com/gin-gonic/gin"
 	"sea.com/matrisea/vmm"
 )
 
-var router *gin.Engine
-var v *vmm.VMM
+var (
+	router *gin.Engine
+	v      *vmm.VMM
+)
 
 func main() {
-	v = vmm.NewVMM()
+	v = vmm.NewVMM(
+		getenv("IMAGE_DIR", "/data/workspace/matrisea/images/"),
+		getenv("UPLOAD_DIR", "/data/workspace/matrisea/upload/"),
+	)
 	router = gin.Default()
 	api := router.Group("/api")
 
@@ -35,8 +42,16 @@ func listVM(c *gin.Context) {
 }
 
 func createVM(c *gin.Context) {
-	containerID, err := v.CreateVM()
+	aosp_file := c.PostForm("aosp_file")
+	cvd_file := c.PostForm("cvd_file")
+	// create and run a container
+	name, err := v.CreateVM()
 	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	// unzip/untar selected images to the container's image folder on the host
+	if err := v.LoadImages(name, aosp_file, cvd_file); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -69,4 +84,12 @@ func removeVM(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"message": "ok"})
+}
+
+func getenv(key, fallback string) string {
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		return fallback
+	}
+	return value
 }
