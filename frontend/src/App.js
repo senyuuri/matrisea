@@ -1,4 +1,5 @@
-import logo from './logo.svg';
+import React, { useState, useCallback, useEffect } from 'react';
+import NewVMForm from './components/NewVMForm';
 import './App.css';
 import { Button } from 'antd';
 import { Layout, Menu, Breadcrumb, Row, Col, Table, Tag, Space } from 'antd';
@@ -8,62 +9,52 @@ const columns = [
   {
     title: 'ID',
     dataIndex: 'id',
-    key: 'id',
-    // render: text => <a>{text}</a>,
   },
   {
     title: 'Name',
     dataIndex: 'name',
-    key: 'name',
   },
   {
-    title: 'Device Type',
-    dataIndex: 'device_type',
-    key: 'devide_type',
-  },
-  {
-    title: 'AOSP Version',
+    title: 'AOSP Image',
     dataIndex: "aosp_version",
-    key: 'aosp_version'
   },
   {
     title: 'Created At',
     dataIndex: "created",
-    key: 'created'
   },
-  // ,{
-  //   title: 'Tags',
-  //   key: 'tags',
-  //   dataIndex: 'tags',
-  //   render: tags => (
-  //     <>
-  //       {tags.map(tag => {
-  //         let color = tag.length > 5 ? 'geekblue' : 'green';
-  //         if (tag === 'loser') {
-  //           color = 'volcano';
-  //         }
-  //         return (
-  //           <Tag color={color} key={tag}>
-  //             {tag.toUpperCase()}
-  //           </Tag>
-  //         );
-  //       })}
-  //     </>
-  //   ),
-  // },
+  ,{
+    title: 'Tags',
+    dataIndex: 'tags',
+    render: tags => (
+      <>
+        {tags.map(tag => {
+          let color = 'geekblue';
+          if (tag === 'Custom Kernel') {
+            color = 'volcano';
+          }
+          return (
+            <Tag color={color} key={tag}>
+              {tag.toUpperCase()}
+            </Tag>
+          );
+        })}
+      </>
+    ),
+  },
   {
     title: 'Status',
     dataIndex: "status",
-    key: 'status',
     render: (status) => (
-      <Tag color='green' key={status}>
-          {status}
-      </Tag>
+      <>{ 
+        <Tag color='green' key={status}>
+            {status}
+        </Tag>
+      }
+      </> 
     )
   },
   {
     title: 'Action',
-    key: 'action',
     render: (text, record) => (
       <Space size="middle">
         <a>View</a>
@@ -83,32 +74,53 @@ const data = [
     aosp_version: 'aosp_cf_x86_64_phone-img-7530437',
     created: '2020-01-01 00:00:00',
     status: 'Running',
+    tags: ["Android 11",]
+  },
+  {
+    key: '1',
+    id: '15db08f938a4',
+    name: 'matrisea-cvd-JTcFAR',
+    device_type: 'cuttlefish-kvm',
+    aosp_version: 'aosp_cf_x86_64_phone-img-7530437',
+    created: '2020-01-01 00:00:00',
+    status: 'Running',
+    tags: ["Android 11", "Custom Kernel"]
   },
 ];
 
-const App = () => (
-    <Layout className="layout" style={{ minHeight: "100vh" }}>
-      <Header>
-        <div className="logo">
-          <img src="/logo512.png" style={{maxWidth: "100%", maxHeight: "100%" }}></img>
-        </div>
-        {/* <h1 className="logo-text"> Matrisea</h1> */}
-      </Header>
-      <Content style={{ padding: '0 50px' }}>
-        <div className="site-layout-content">
-          <Row justify="space-between">
-  
-              <Breadcrumb>
-                <Breadcrumb.Item>Home</Breadcrumb.Item>
-                <Breadcrumb.Item>Devices</Breadcrumb.Item>
-              </Breadcrumb>
-         
-              <Button>New Virtual Device</Button>
-          </Row>
-          <Table style={{ paddingTop: '10px' }} columns={columns} dataSource={data} />
-        </div>
-      </Content>
-    </Layout>
-);
+function App() {
+  const [formVisible, setFormVisible] = useState(false);
+  function handleFormClose() {
+    setFormVisible(false);
+  }
+
+  useEffect(() => {
+    document.title = "Matrisea"
+  }, []);
+
+  return (<Layout className="layout" style={{ minHeight: "100vh" }}>
+    <Header>
+      <div className="logo">
+        <img src="/logo512.png" style={{maxWidth: "100%", maxHeight: "100%" }}></img>
+      </div>
+      {/* <h1 className="logo-text"> Matrisea</h1> */}
+    </Header>
+    <Content style={{ padding: '0 50px' }}>
+      <div className="site-layout-content">
+        <Row justify="space-between">
+
+            <Breadcrumb>
+              <Breadcrumb.Item>Home</Breadcrumb.Item>
+              <Breadcrumb.Item>Devices</Breadcrumb.Item>
+            </Breadcrumb>
+        
+            <Button onClick={() => {console.log(1111); setFormVisible(true);}}>New Virtual Device</Button>
+        </Row>
+        <Table style={{ paddingTop: '10px' }} columns={columns} dataSource={data} />
+      </div>
+      <NewVMForm visible={formVisible} onChange={handleFormClose}/>
+    </Content>
+  </Layout>)
+}
 
 export default App;
