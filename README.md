@@ -1,4 +1,9 @@
-# Matrisea
+![matrisea-logo](https://user-images.githubusercontent.com/2610986/125149686-f9499a00-e16c-11eb-8af9-531d4331ddae.png)
+
+![license-mit](https://img.shields.io/badge/license-MIT-green)
+![release](https://img.shields.io/badge/release-pre--alpha-lightgrey)
+
+## Matrisea
 
 Matrisea (/ˈmeɪtrɪksiː/) is a cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
 
