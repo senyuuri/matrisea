@@ -30,3 +30,13 @@
 .ant-layout-content {
   background: #fff;
 }
+
+.ant-upload-list-item {
+  float: left;
+  width: 100%;
+  margin-right: 8px;
+}
+
+.ant-upload-list-picture .ant-upload-list-item, .ant-upload-list-picture-card .ant-upload-list-item {
+  height: 40px;
+}

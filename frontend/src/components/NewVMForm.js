@@ -1,9 +1,17 @@
-import { Drawer, Form, Button, Col, Row, Input, Select, Slider, InputNumber, Upload} from 'antd';
+import { Upload, Drawer, Form, Button, Col, Row, Input, Select, Slider, InputNumber, Space} from 'antd';
 import React, { useState, useCallback, useEffect } from 'react';
-import { InboxOutlined } from '@ant-design/icons';
+import { UploadOutlined, InboxOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
 const { Dragger } = Upload;
+
+const fileList = [
+    {
+      uid: '-2',
+      name: 'aosp-xxxxxxx.img',
+      status: 'success',
+    },
+  ];
 
 function NewVMForm(props) {
     const [visible, setVisible] = useState(props.visible);
@@ -44,17 +52,17 @@ function NewVMForm(props) {
                 <Col span={12}>
                 <Form.Item
                     name="name"
-                    label="Name"
-                    rules={[{ required: true, message: 'Please enter user name' }]}
+                    label="Device Name"
+                    rules={[{ required: true, message: 'Please enter a device name' }]}
                 >
-                    <Input placeholder="Please enter user name" />
+                    <Input placeholder="Virtual device name" />
                 </Form.Item>
                 </Col>
                 <Col span={12}>
                     <Form.Item
                         name="device"
                         label="Device Type"
-                        rules={[{ required: true, message: 'Please choose the type' }]}
+                        rules={[{ required: true, message: 'Please choose the device type' }]}
                     >
                         <Select placeholder="Please choose the type" disabled={true} defaultValue="cuttlefish-kvm">
                             <Option value="cuttlefish-kvm">cuttlefish-kvm</Option>
@@ -67,13 +75,16 @@ function NewVMForm(props) {
                     <Form.Item
                         name="cpu"
                         label="CPU"
-                        rules={[{ required: true, message: 'Please choose the type' }]}
+                        rules={[{ required: true, message: 'Please choose the CPU' }]}
                     >
-                        <Slider
-                            min={1}
-                            max={20}
-                            value={0}
-                        />
+                        <Select placeholder="Please choose the CPU"  defaultValue={2}>
+                            {new Array(4).fill(null).map((_, index) => {
+                                const key = index + 1;
+                                return <Option value={key}> {key} vCPU</Option>
+                                
+                            })}
+                            
+                        </Select>
                     </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -82,31 +93,80 @@ function NewVMForm(props) {
                     label="RAM"
                     rules={[{ required: true, message: 'Please enter the size of RAM' }]}
                 >
-                    <Slider
-                        min={1}
-                        max={20}
-                        value={0}
-                    />
+                    <Select placeholder="Please choose the size of RAM"  defaultValue={4}>
+                        {new Array(8).fill(null).map((_, index) => {
+                            const key = index + 1;
+                            return <Option value={key}> {key} GB</Option>
+                            
+                        })}
+                        
+                    </Select>
                 </Form.Item>
                 </Col>
             </Row>
-            <Row>
-                <Form.Item
-                    name="images"
-                    label="Images"
-                    rules={[{ required: true, message: 'Please enter the size of RAM' }]}
-                >
-                    <Dragger>
-                        <p className="ant-upload-drag-icon">
-                        <InboxOutlined />
-                        </p>
-                        <p className="ant-upload-text">Click or drag file to this area to upload</p>
-                        <p className="ant-upload-hint">
-                        Support for a single or bulk upload. Strictly prohibit from uploading company data or other
-                        band files
-                        </p>
-                    </Dragger>
-                </Form.Item>
+            <Row gutter={16}>
+                <Col span={12}>
+                    <Form.Item
+                        name="aosp-image"
+                        label="System Image"
+                        rules={[{ required: true, message: 'Please upload/choose a system image' }]}
+                    >
+                        <Upload
+                            action="https://www.mocky.io/v2/5cc8019d300000980a055e76"
+                            listType="picture"
+                            defaultFileList={[...fileList]}
+                        >
+                            <Space>
+                                <Button icon={<UploadOutlined />}>Click to upload</Button>
+                                <Button disabled={true} icon={<UploadOutlined />}>Previous uploads</Button>
+                            </Space>
+                        
+                        </Upload>
+                        
+                    </Form.Item>
+                </Col>
+                <Col span={12}>
+                    <Form.Item
+                        name="cvd-image"
+                        label="CVD Image"
+                        rules={[{ required: true, message: 'Please upload/choose a CVD image' }]}
+                    >
+                        <Upload
+                            action="https://www.mocky.io/v2/5cc8019d300000980a055e76"
+                            listType="picture"
+                            defaultFileList={[...fileList]}
+                        >
+                            <Space>
+                                <Button icon={<UploadOutlined />}>Click to upload</Button>
+                                <Button disabled={true} icon={<UploadOutlined />}>Previous uploads</Button>
+                            </Space>
+                        
+                        </Upload>
+                        
+                    </Form.Item>
+                </Col>
+            </Row>
+            <Row gutter={16}>
+                <Col span={12}>
+                    <Form.Item
+                        name="kernel-image"
+                        label="Kernel Image (Optional)"
+                        rules={[{ required: false }]}
+                    >
+                        <Upload
+                            action="https://www.mocky.io/v2/5cc8019d300000980a055e76"
+                            listType="picture"
+                            defaultFileList={[...fileList]}
+                        >
+                            <Space>
+                                <Button icon={<UploadOutlined />}>Click to upload</Button>
+                                <Button disabled={true} icon={<UploadOutlined />}>Previous uploads</Button>
+                            </Space>
+                        
+                        </Upload>
+                        
+                    </Form.Item>
+                </Col>
             </Row>
             </Form>
         </Drawer>
