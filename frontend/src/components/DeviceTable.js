@@ -1,4 +1,5 @@
 import { Layout, Breadcrumb, Row, Col, Table, Tag, Space, Badge } from 'antd';
+import { Link, BrowserRouter as Router, Route } from 'react-router-dom';
 
 const columns = [
     {
@@ -50,7 +51,7 @@ const columns = [
         title: 'Action',
         render: (text, record) => (
             <Space size="middle">
-                <a href="/device/aaa">View</a>
+                <Link to="/device/aaa">View</Link>
                 <a>Start/Stop</a>
                 <a>Delete</a>
             </Space>

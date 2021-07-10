@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Breadcrumb, Row, Button, } from 'antd';
+import QueueAnim from 'rc-queue-anim';
 
 import NewVMForm from './components/NewVMForm';
 import DeviceTable from './components/DeviceTable';
@@ -35,19 +36,21 @@ function DeviceList(){
   }
 
   return (
-    <div>
+    <div key="device-list">
         <div className="site-layout-content">
-          <Row justify="space-between">
-            <Breadcrumb>
-              <Breadcrumb.Item>Home</Breadcrumb.Item>
-              <Breadcrumb.Item>Devices</Breadcrumb.Item>
-            </Breadcrumb>
-            <Button onClick={() => {setFormVisible(true);}}>New Virtual Device</Button>
-          </Row>
-          <DeviceTable data={data}/>
+          <QueueAnim key="content" type={['right', 'left']}>
+            <Row justify="space-between" key="1">
+              <Breadcrumb>
+                <Breadcrumb.Item>Home</Breadcrumb.Item>
+                <Breadcrumb.Item>Devices</Breadcrumb.Item>
+              </Breadcrumb>
+              <Button onClick={() => {setFormVisible(true);}}>New Virtual Device</Button>
+            </Row>
+            <DeviceTable data={data} key="2"/>
+          </QueueAnim>
         </div>
         <NewVMForm visible={formVisible} onChange={handleFormClose}/>
-    </div>
+  </div>
   )
 }
 
