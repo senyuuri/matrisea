@@ -19,9 +19,15 @@ import (
 	"github.com/docker/docker/client"
 )
 
+// for DefaultNetwork: although the ideal design is to setup a new bridge network so as
+// to ensure better isolation between matrisea and other docker workloads on the same host.
+// However, this could introduce in-container DNS failure on Ubuntu 18.09+ as 18.09+ defaults
+// to systemd-resolved for host DNS management.
+//
+// More details: https://github.com/moby/moby/issues/38243
 var (
 	VMPrefix       = "matrisea-cvd-"                   // container name prefix
-	DefaultNetwork = "cvd-bridge"                      // default docker network name
+	DefaultNetwork = "bridge"                          // use docker's default bridge
 	CFImage        = "cuttlefish:latest"               // cuttlefish image
 	ImageDir       = "/data/workspace/matrisea/images" // TODO read it from env
 	WorkDir        = "/home/vsoc-01"                   // workdir inside container
