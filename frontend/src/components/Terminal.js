@@ -5,7 +5,7 @@ import { AttachAddon } from 'xterm-addon-attach';
 
 function WebTerminal(){
     // TODO check environment and change to container host name in prod
-    const ws = new WebSocket("ws://127.0.0.1:8080/api/v1/vms/matrisea-cvd-SxPqBY/ws");
+    const ws = new WebSocket("ws://127.0.0.1:8080/api/v1/vms/matrisea-cvd-tQakvR/ws");
 
     const xtermRef = useRef(null);
     const fitAddon = new FitAddon();

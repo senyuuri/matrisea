@@ -12,7 +12,7 @@ func TestVMMIntegration(t *testing.T) {
 
 	// vmm.PruneVMs()
 	// name, _ := vmm.CreateVM()
-	// vmm.PrintVMs()
+	// // vmm.PrintVMs()
 
 	// vmm.LoadImages(
 	// 	name,

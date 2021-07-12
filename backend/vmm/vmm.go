@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 )
 
 // for DefaultNetwork: although the ideal design is to setup a new bridge network so as
@@ -83,6 +84,10 @@ func (v *VMM) CreateVM() (name string, err error) {
 		Env: []string{
 			"HOME=/home/vsoc-01",
 		},
+		// TODO disable VNC port binding in production
+		ExposedPorts: nat.PortSet{
+			"6444/tcp": struct{}{},
+		},
 	}
 
 	hostConfig := &container.HostConfig{
@@ -99,6 +104,15 @@ func (v *VMM) CreateVM() (name string, err error) {
 				Source:   imageDir,
 				Target:   WorkDir,
 				ReadOnly: false,
+			},
+		},
+		// TODO disable VNC port binding in production
+		PortBindings: nat.PortMap{
+			"6444/tcp": []nat.PortBinding{
+				{
+					HostIP:   "127.0.0.1",
+					HostPort: "6444",
+				},
 			},
 		},
 	}
