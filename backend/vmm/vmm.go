@@ -24,7 +24,7 @@ var (
 	DefaultNetwork = "cvd-bridge"                      // default docker network name
 	CFImage        = "cuttlefish:latest"               // cuttlefish image
 	ImageDir       = "/data/workspace/matrisea/images" // TODO read it from env
-	WorkDir        = "/root"                           // workdir inside container
+	WorkDir        = "/home/vsoc-01"                   // workdir inside container
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -74,6 +74,9 @@ func (v *VMM) CreateVM() (name string, err error) {
 			"n_cf_instances":  "1",
 			"vsock_guest_cid": "false",
 		},
+		Env: []string{
+			"HOME=/home/vsoc-01",
+		},
 	}
 
 	hostConfig := &container.HostConfig{
@@ -118,28 +121,28 @@ func (v *VMM) CreateVM() (name string, err error) {
 func (v *VMM) StartVM(containerName string, options string) error {
 	log.Printf("StartVM %s with options: %s\n", containerName, options)
 	ctx := context.Background()
-	_, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{WorkDir + "/bin/launch_cvd", options, "&>cvd_start.log"},
+		Cmd:          []string{WorkDir + "/bin/launch_cvd", options, "&>" + WorkDir + "/cvd_start.log"},
 		Tty:          true,
 	})
 	if err != nil {
 		return err
 	}
 
-	// hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
-	// if err != nil {
-	// 	return err
-	// }
+	// launch_cvd only starts running when a tty is attached
+	hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
+	if err != nil {
+		return err
+	}
 
-	// defer hijackedResp.Close()
-	// // input of interactive shell
-	// // hijackedResp.Conn.Write([]byte("ls\r"))
+	defer hijackedResp.Close()
+	// // // input of interactive shell
+	// hijackedResp.Conn.Write([]byte("ls\r"))
 	// scanner := bufio.NewScanner(hijackedResp.Conn)
 	// for scanner.Scan() {
-
 	// 	fmt.Println(scanner.Text())
 	// }
 	return nil
@@ -278,7 +281,7 @@ func (v *VMM) createImageFolder(containerName string) string {
 
 func (v *VMM) deleteImageFolder(containerName string) error {
 	path := path.Join(v.ImageDir, containerName)
-	err := os.Remove(path)
+	err := os.RemoveAll(path)
 	if err != nil {
 		log.Fatal(err)
 	}
