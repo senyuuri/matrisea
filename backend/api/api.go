@@ -1,9 +1,13 @@
 package main
 
 import (
+	"io"
+	"log"
+	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"sea.com/matrisea/vmm"
 )
 
@@ -27,6 +31,7 @@ func main() {
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.DELETE("/vms/:name/", removeVM)
+		v1.GET("/vms/:name/ws", terminalHandler)
 	}
 	router.Run()
 }
@@ -55,7 +60,7 @@ func createVM(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"container_id": containerID})
+	c.JSON(200, gin.H{"container_name": name})
 }
 
 func startVM(c *gin.Context) {
@@ -84,6 +89,73 @@ func removeVM(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"message": "ok"})
+}
+
+func terminalHandler(c *gin.Context) {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Print("upgrade:", err)
+		return
+	}
+	defer conn.Close()
+
+	// read container name from URL params
+	container := c.Param("name")
+
+	// run bash in container and get the hijacked session
+	hijackedResp, err := v.AttachToTerminal(container)
+	if err != nil {
+		log.Fatalf(err.Error())
+		return
+	}
+
+	// clean up after quit
+	defer hijackedResp.Close()
+	defer func() {
+		hijackedResp.Conn.Write([]byte("exit\r"))
+	}()
+
+	// forward read/write to websocket
+	go func() {
+		wsWriterCopy(hijackedResp.Conn, conn)
+	}()
+	wsReaderCopy(conn, hijackedResp.Conn)
+}
+
+// write terminal output to front end
+func wsWriterCopy(reader io.Reader, writer *websocket.Conn) {
+	buf := make([]byte, 8192)
+	for {
+		nr, err := reader.Read(buf)
+		if nr > 0 {
+			err := writer.WriteMessage(websocket.BinaryMessage, buf[0:nr])
+			if err != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// send front end input to terminal
+func wsReaderCopy(reader *websocket.Conn, writer io.Writer) {
+	for {
+		messageType, p, err := reader.ReadMessage()
+		if err != nil {
+			return
+		}
+		if messageType == websocket.TextMessage {
+			writer.Write(p)
+		}
+	}
 }
 
 func getenv(key, fallback string) string {

@@ -131,7 +131,7 @@ func (v *VMM) StartVM(containerName string, options string) error {
 		User:         "vsoc-01",
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{WorkDir + "/bin/launch_cvd", options, "&>" + WorkDir + "/cvd_start.log"},
+		Cmd:          []string{WorkDir + "/bin/launch_cvd", "--nostart_webrtc", "--start_vnc_server", "&>" + WorkDir + "/cvd_start.log"},
 		Tty:          true,
 	})
 	if err != nil {
@@ -144,6 +144,7 @@ func (v *VMM) StartVM(containerName string, options string) error {
 		return err
 	}
 
+	// TODO check return code
 	defer hijackedResp.Close()
 	// // // input of interactive shell
 	// hijackedResp.Conn.Write([]byte("ls\r"))
@@ -227,6 +228,27 @@ func (v *VMM) PruneVMs() {
 		}
 		log.Printf("Removed VM %s\n", vm.ID[:10])
 	}
+}
+
+func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
+	log.Printf("Request to attach to container terminal %s\n", containerName)
+	ctx := context.Background()
+	ir, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"/bin/bash"},
+		Tty:          true,
+	})
+	if err != nil {
+		return
+	}
+
+	hijackedResp, err := v.Client.ContainerExecAttach(ctx, ir.ID, types.ExecStartCheck{Detach: false, Tty: true})
+	if err != nil {
+		return hijackedResp, err
+	}
+	return hijackedResp, nil
 }
 
 func (v *VMM) installAdeb() {

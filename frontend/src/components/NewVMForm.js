@@ -1,9 +1,8 @@
-import { Upload, Drawer, Form, Button, Col, Row, Input, Select, Slider, InputNumber, Space} from 'antd';
+import { Upload, Drawer, Form, Button, Col, Row, Input, Select, Space} from 'antd';
 import React, { useState, useCallback, useEffect } from 'react';
-import { UploadOutlined, InboxOutlined } from '@ant-design/icons';
+import { UploadOutlined} from '@ant-design/icons';
 
 const { Option } = Select;
-const { Dragger } = Upload;
 
 const fileList = [
     {
@@ -65,7 +64,7 @@ function NewVMForm(props) {
                         rules={[{ required: true, message: 'Please choose the device type' }]}
                     >
                         <Select placeholder="Please choose the type" disabled={true} defaultValue="cuttlefish-kvm">
-                            <Option value="cuttlefish-kvm">cuttlefish-kvm</Option>
+                            <Option key="cuttlefish-kvm" value="cuttlefish-kvm">cuttlefish-kvm</Option>
                         </Select>
                     </Form.Item>
                 </Col>
@@ -80,7 +79,7 @@ function NewVMForm(props) {
                         <Select placeholder="Please choose the CPU"  defaultValue={2}>
                             {new Array(4).fill(null).map((_, index) => {
                                 const key = index + 1;
-                                return <Option value={key}> {key} vCPU</Option>
+                                return <Option key={key} value={key}> {key} vCPU</Option>
                                 
                             })}
                             
@@ -96,7 +95,7 @@ function NewVMForm(props) {
                     <Select placeholder="Please choose the size of RAM"  defaultValue={4}>
                         {new Array(8).fill(null).map((_, index) => {
                             const key = index + 1;
-                            return <Option value={key}> {key} GB</Option>
+                            return <Option key={key} value={key}> {key} GB</Option>
                             
                         })}
                         

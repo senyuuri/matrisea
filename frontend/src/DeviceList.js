@@ -17,7 +17,7 @@ const data = [
     tags: ["Android 11",]
   },
   {
-    key: '1',
+    key: '2',
     id: '15db08f938a4',
     name: 'matrisea-cvd-JTcFAR',
     device_type: 'cuttlefish-kvm',

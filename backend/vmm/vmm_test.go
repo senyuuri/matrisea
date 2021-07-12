@@ -2,7 +2,6 @@ package vmm
 
 import (
 	"testing"
-	"time"
 )
 
 func TestVMMIntegration(t *testing.T) {
@@ -22,7 +21,7 @@ func TestVMMIntegration(t *testing.T) {
 	// )
 
 	vms, _ := vmm.ListVM()
-	vmm.StartVM(getCFContainerName(vms[0]), "--norun_adb_connector")
-	time.Sleep(30 * time.Second)
-	vmm.StopVM(getCFContainerName(vms[0]))
+	vmm.StartVM(getCFContainerName(vms[0]), "")
+	// time.Sleep(30 * time.Second)
+	// vmm.StopVM(getCFContainerName(vms[0]))
 }

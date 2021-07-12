@@ -1,8 +1,25 @@
-import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Image, Descriptions, Empty, Spin } from 'antd';
-import { MailOutlined, PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
+import React from 'react';
+import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Image, Spin } from 'antd';
+import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
+import WebTerminal from './components/Terminal';
 
 function DeviceDetail(){
+  const MyPageHeader = React.forwardRef((props, ref) => (
+    <PageHeader
+      innerRef={ref}
+      key="2"
+      ghost={false}
+      onBack={() => window.history.back()}
+      title="matrisea-aaa-bbb"
+      subTitle="aosp-aaaaaaaaaaaa / custom-kernel"
+      extra={[
+        <Button icon={<PoweroffOutlined />} key="power-btn">Power</Button>
+      ]}
+      {...props}
+    />
+  ));
+  
   return (
     <div key="device-detail">
       <div className="site-layout-content">
@@ -14,26 +31,7 @@ function DeviceDetail(){
               <Breadcrumb.Item>matrisea-aaa-bbb</Breadcrumb.Item>
             </Breadcrumb>
           </Row>
-          <PageHeader
-            key="2"
-            ghost={false}
-            onBack={() => window.history.back()}
-            title="matrisea-aaa-bbb"
-            subTitle="aosp-aaaaaaaaaaaa / custom-kernel"
-            extra={[
-              <Button icon={<PoweroffOutlined />}>Power</Button>
-            ]}
-          >
-            {/* <Descriptions size="small" column={4}>
-              <Descriptions.Item label="Device Type">cuttlefish-kvm</Descriptions.Item>
-              <Descriptions.Item label="System Image">aosp_cf_x86_64_phone-img-7530437</Descriptions.Item>
-              <Descriptions.Item label="CVD Image">cvd-host_package.tar</Descriptions.Item>
-              <Descriptions.Item label="Creation Time">2017-01-10 00:00:00</Descriptions.Item>
-              <Descriptions.Item label="Kernel">
-              Linux cuttlefish-dev 4.15.0-147-generic #151-Ubuntu SMP Fri Jun 18 19:21:19 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux
-              </Descriptions.Item>
-            </Descriptions> */}
-          </PageHeader>
+          <MyPageHeader/>
           <Row gutter={16}  key="3">
               <Col span={6}>
                 <Spin spinning={true} tip="Waiting for device...">
@@ -46,17 +44,19 @@ function DeviceDetail(){
                   </Spin>
               </Col>
               <Col span={16}>
-              <Menu mode="horizontal">
-                <Menu.Item key="settings" icon={<SettingOutlined />}>
-                  Settings
-                </Menu.Item>
-                <Menu.Item key="terminal" icon={<InteractionOutlined />}>
-                  Terminal
-                </Menu.Item>
-                <Menu.Item key="log" icon={<BarsOutlined />}>
-                    Device Log
+                <Menu mode="horizontal" selectedKeys="terminal">
+                  <Menu.Item key="terminal" icon={<InteractionOutlined />}>
+                    Terminal
+                  </Menu.Item>
+                  <Menu.Item key="log" icon={<BarsOutlined />}>
+                      Device Log
+                    </Menu.Item>
+    
+                  <Menu.Item key="settings" icon={<SettingOutlined />}>
+                    Settings
                   </Menu.Item>
                 </Menu>
+                <WebTerminal/>
               </Col>
             </Row>
         </QueueAnim>

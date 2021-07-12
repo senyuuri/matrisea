@@ -1,5 +1,5 @@
-import { Layout, Breadcrumb, Row, Col, Table, Tag, Space, Badge } from 'antd';
-import { Link, BrowserRouter as Router, Route } from 'react-router-dom';
+import { Table, Tag, Space, Badge } from 'antd';
+import { Link } from 'react-router-dom';
 
 const columns = [
     {
@@ -17,7 +17,7 @@ const columns = [
     {
       title: 'Created At',
       dataIndex: "created",
-    },
+    }
     ,{
       title: 'Tags',
       dataIndex: 'tags',
