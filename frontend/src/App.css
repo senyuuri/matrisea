@@ -44,8 +44,3 @@
 .ant-page-header {
   padding-left: 0;
 }
-
-.vnc-div canvas {
-  width: 100% !important;
-  height: 100% !important;
-}
