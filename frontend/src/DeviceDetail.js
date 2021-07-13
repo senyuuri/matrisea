@@ -1,9 +1,9 @@
 import React from 'react';
 import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Image, Spin } from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
-import VncDisplay from 'react-vnc-display';
 import QueueAnim from 'rc-queue-anim';
 import WebTerminal from './components/Terminal';
+import VNCDisplay from './components/VNCDisplay';
 
 function DeviceDetail(){
   const MyPageHeader = React.forwardRef((props, ref) => (
@@ -35,7 +35,9 @@ function DeviceDetail(){
           <MyPageHeader/>
           <Row gutter={16}  key="3">
               <Col span={6}>
-                <VncDisplay url="ws://localhost:6080/"/>
+                <div class="vnc-div">
+                  <VNCDisplay url="ws://192.168.3.100:6080/"/>
+                </div>
                 {/* <Spin spinning={true} tip="Waiting for device...">
                   </Spin> */}
               </Col>

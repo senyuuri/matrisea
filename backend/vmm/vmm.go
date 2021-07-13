@@ -17,7 +17,6 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 )
 
 // for DefaultNetwork: although the ideal design is to setup a new bridge network so as
@@ -85,9 +84,9 @@ func (v *VMM) CreateVM() (name string, err error) {
 			"HOME=/home/vsoc-01",
 		},
 		// TODO disable VNC port binding in production
-		ExposedPorts: nat.PortSet{
-			"6444/tcp": struct{}{},
-		},
+		// ExposedPorts: nat.PortSet{
+		// 	"6444/tcp": struct{}{},
+		// },
 	}
 
 	hostConfig := &container.HostConfig{
@@ -107,14 +106,14 @@ func (v *VMM) CreateVM() (name string, err error) {
 			},
 		},
 		// TODO disable VNC port binding in production
-		PortBindings: nat.PortMap{
-			"6444/tcp": []nat.PortBinding{
-				{
-					HostIP:   "127.0.0.1",
-					HostPort: "6444",
-				},
-			},
-		},
+		// PortBindings: nat.PortMap{
+		// 	"6444/tcp": []nat.PortBinding{
+		// 		{
+		// 			HostIP:   "0.0.0.0",
+		// 			HostPort: "6444",
+		// 		},
+		// 	},
+		// },
 	}
 
 	// attach the VM to the default bridge
@@ -145,8 +144,9 @@ func (v *VMM) StartVM(containerName string, options string) error {
 		User:         "vsoc-01",
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{WorkDir + "/bin/launch_cvd", "--nostart_webrtc", "--start_vnc_server", "&>" + WorkDir + "/cvd_start.log"},
-		Tty:          true,
+		Cmd:          []string{WorkDir + "/bin/launch_cvd", "--nostart_webrtc", "--start_vnc_server"},
+		//Cmd: []string{WorkDir + "/bin/launch_cvd", "--start_webrtc"},
+		Tty: true,
 	})
 	if err != nil {
 		return err
@@ -160,12 +160,12 @@ func (v *VMM) StartVM(containerName string, options string) error {
 
 	// TODO check return code
 	defer hijackedResp.Close()
-	// // // input of interactive shell
-	// hijackedResp.Conn.Write([]byte("ls\r"))
-	// scanner := bufio.NewScanner(hijackedResp.Conn)
-	// for scanner.Scan() {
-	// 	fmt.Println(scanner.Text())
-	// }
+	// input of interactive shell
+	hijackedResp.Conn.Write([]byte("ls\r"))
+	scanner := bufio.NewScanner(hijackedResp.Conn)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
 	return nil
 }
 
