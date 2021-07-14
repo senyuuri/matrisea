@@ -17,9 +17,8 @@ function WebTerminal(){
     }, [fitAddon])
     return (
         <XTerm 
-            ref={xtermRef} 
+            ref={xtermRef}
             addons={[fitAddon, attachAddon]}
-
         />
     );
 }

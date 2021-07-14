@@ -44,3 +44,15 @@
 .ant-page-header {
   padding-left: 0;
 }
+
+#vnc-canvas {
+  height: 100%;
+}
+
+#detail-flex-content {
+  min-height: 500px;
+}
+
+.xterm-screen {
+  min-height: 500px;
+}

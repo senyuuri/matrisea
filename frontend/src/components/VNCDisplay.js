@@ -1,7 +1,7 @@
 import RFB from '@novnc/novnc/core/rfb';
 import { useEffect } from 'react';
 
-function NewVNCDisplay(props){
+function VNCDisplay(props){
 
     var rfb;
     // When this function is called we have
@@ -38,4 +38,4 @@ function NewVNCDisplay(props){
     )
 }
 
-export default NewVNCDisplay
+export default VNCDisplay

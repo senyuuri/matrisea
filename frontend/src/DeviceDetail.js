@@ -22,43 +22,38 @@ function DeviceDetail(){
   ));
   
   return (
-    <div key="device-detail">
-      <div className="site-layout-content">
-        <QueueAnim key="content" type={['right', 'left']}>
-          <Row justify="space-between" key="1">
-            <Breadcrumb>
-              <Breadcrumb.Item>Home</Breadcrumb.Item>
-              <Breadcrumb.Item>Device</Breadcrumb.Item>
-              <Breadcrumb.Item>matrisea-aaa-bbb</Breadcrumb.Item>
-            </Breadcrumb>
-          </Row>
-          <MyPageHeader/>
-          <Row gutter={16}  key="3">
-              <Col span={6}>
-                <div class="vnc-div">
-                  <VNCDisplay url="ws://192.168.3.100:6080/"/>
-                </div>
-                {/* <Spin spinning={true} tip="Waiting for device...">
-                  </Spin> */}
-              </Col>
-              <Col span={16}>
-                <Menu mode="horizontal" selectedKeys="terminal">
-                  <Menu.Item key="terminal" icon={<InteractionOutlined />}>
-                    Terminal
-                  </Menu.Item>
-                  <Menu.Item key="log" icon={<BarsOutlined />}>
-                      Device Log
-                    </Menu.Item>
-    
-                  <Menu.Item key="settings" icon={<SettingOutlined />}>
-                    Settings
-                  </Menu.Item>
-                </Menu>
-                <WebTerminal/>
-              </Col>
-            </Row>
-        </QueueAnim>
-      </div>
+    <div className="site-layout-content">
+      <QueueAnim key="content" type={['right', 'left']}>
+        <Row justify="space-between" key="1">
+          <Breadcrumb>
+            <Breadcrumb.Item>Home</Breadcrumb.Item>
+            <Breadcrumb.Item>Device</Breadcrumb.Item>
+            <Breadcrumb.Item>matrisea-aaa-bbb</Breadcrumb.Item>
+          </Breadcrumb>
+        </Row>
+        <MyPageHeader/>
+        <Row gutter={16}  key="3" id="detail-flex-content">
+          <Col span={6}>
+            <VNCDisplay url="ws://192.168.3.100:6080/"/>
+            {/* <Spin spinning={true} tip="Waiting for device...">
+              </Spin> */}
+          </Col>
+          <Col span={16}>
+            <Menu mode="horizontal" selectedKeys="terminal">
+              <Menu.Item key="terminal" icon={<InteractionOutlined />}>
+                Terminal
+              </Menu.Item>
+              <Menu.Item key="log" icon={<BarsOutlined />}>
+                Device Log
+              </Menu.Item>
+              <Menu.Item key="settings" icon={<SettingOutlined />}>
+                Settings
+              </Menu.Item>
+            </Menu>
+            <WebTerminal/>
+          </Col>
+        </Row>
+      </QueueAnim>
     </div>
   )
 }

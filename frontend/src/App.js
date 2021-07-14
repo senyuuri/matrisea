@@ -13,7 +13,8 @@ const { Header, Content } = Layout;
 function App() {
   const location = useLocation()
 
-  return (<Layout className="layout" style={{ minHeight: "100vh" }}>
+  return (
+  <Layout className="layout" style={{ minHeight: "100vh" }}>
     <Header>
       <div className="logo">
         <img alt="logo" src="/logo512.png" style={{maxWidth: "100%", maxHeight: "100%" }}></img>
@@ -23,10 +24,8 @@ function App() {
     <Content style={{ padding: '0 50px' }}>
       <Switch location={location}>
         <React.Fragment>
-          <QueueAnim type={['right', 'left']} className="router-wrap">
-            <Route location={location} exact path={"/"} component={DeviceList} key="router-list"/>
-            <Route location={location} exact path={"/device/:device_name"} component={DeviceDetail} key="router-detail"/>
-          </QueueAnim>
+          <Route location={location} exact path={"/"} component={DeviceList} key="router-list"/>
+          <Route location={location} exact path={"/device/:device_name"} component={DeviceDetail} key="router-detail"/>
         </React.Fragment>
       </Switch>
     </Content>
