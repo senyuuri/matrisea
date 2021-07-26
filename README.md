@@ -34,11 +34,23 @@ docker-compose up -d
 - docker v20+
 
 **Preparation**
-```
-# check environment and build cuttlefish image
-git clone https://github.com/senyuuri/matrisea
-cd matrisea; ./setup.sh
-```
+1. Clone the repo and build cuttlefish image. Once finished, reboot to load additional kernel modules and apply udev rules.
+    ```
+    git clone https://github.com/senyuuri/matrisea
+    cd matrisea; ./setup.sh
+    ```
+2. To download a ready-made AOSP image for testing, Goto https://ci.android.com/ and search for branch `aosp-android11-gsi`. Among all the builds, look for a successful build (green box) under the `userdebug - aosp_cf_x86_x64_phone` column. Click on `Artifacts` and download the following files:
+    - `aosp_cf_x86_64_phone-img-xxxxxxx.zip`
+    - `cvd-host_package.tar.gz`
+
+3. Create an `images` folder under the root of the source code. Copy both files from (2) into it and unzip to the current directory.
+   ```
+   cp aosp_cf_x86_64_phone-img-xxxxxxx.zip matrisea/images
+   cp cvd-host_packages.tar.gz matrisea/images
+   cd matrisea/images
+   tar xvf cvd-host_package.tar.gz
+   unzip aosp_cf_x86_64_phone-img-xxxxxx.zip
+   ```
 
 **Front End**
 ```

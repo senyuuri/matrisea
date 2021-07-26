@@ -73,7 +73,7 @@ echo "[Install] Building cuttlefish VM image..."
 cd "${WORKDIR}"; 
 
 echo ""
-echo "REBOOT REQUIRED: Matrisea installed successfully. Reboot to install additional kernel modules and apply udev rules."
+echo "REBOOT REQUIRED: Matrisea installed successfully. Reboot to load additional kernel modules and apply udev rules."
 echo ""
 echo "After reboot, run docker-compose up and visit the url below to access the web panel:"
 echo ""
