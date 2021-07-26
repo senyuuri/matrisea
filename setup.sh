@@ -37,21 +37,20 @@ if ! which docker &>/dev/null || ! docker ps |grep -q "CONTAINER"; then
 fi
 
 echo "[Dependency] Load vsock kernel modules..."
-if lsmod | grep -q vmw_vsock; then 
+if systemctl status open-vm-tools.service | grep -q inactive; then 
   read -p "===| vmware-tool is using vsock. (Recommended) Disable open-vm-tools.service and unload conflicting kernel modules? (y/n)"  -n 1 -r
   echo 
   if [[ $REPLY =~ ^[Yy]$ ]]
   then
       sudo systemctl disable open-vm-tools.service
-      echo "===| open-vm-tools.service service diabled."
-      sudo rmmod vhost_vsock vmw_vsock_virtio_transport_common vsock
-      echo "===| unmounted confliting kernel modules: vhost_vsock vmw_vsock_virtio_transport_common vsock"
+      echo "===| open-vm-tools.service service diabled"
+      exit_w_err "Reboot and run ./setup.sh again"
   fi
 fi
 sudo modprobe vhost_vsock vhost_net
 
 echo "[Install] Install system-level tools and dependencies..."
-sudo apt-get install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper=12.\* config-package-dev init-system-helpers=1.56\*
+sudo apt-get install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper=12.\* config-package-dev init-system-helpers=1.5\*
 
 echo "[Install] Downloading android-cuttlefish and adeb..."
 mkdir -p deps; cd deps; 
@@ -66,11 +65,11 @@ fi
 
 echo "[Install] Building and installing cuttlefish debian package..."
 cd android-cuttlefish 
-debuild -i -us -uc -b > /dev/null
+debuild -i -us -uc -b
 sudo dpkg -i ../cuttlefish-common_*_amd64.deb || sudo apt-get install -f -q
 
 echo "[Install] Building cuttlefish VM image..."
-./build.sh
+./build.sh --verbose
 cd "${WORKDIR}"; 
 
 echo ""
