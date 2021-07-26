@@ -27,3 +27,32 @@ cd matrisea; ./setup.sh
 docker-compose up -d
 ```
 
+## Development
+
+**Prerequisites**
+- go v1.16+
+- docker v20+
+
+**Preparation**
+```
+# check environment and build cuttlefish image
+git clone https://github.com/senyuuri/matrisea
+cd matrisea; ./setup.sh
+```
+
+**Front End**
+```
+# install dependencies
+sudo apt install -y npm
+sudo npm install -g yarn
+cd frontend && yarn install
+
+# start the development server
+yarn start
+```
+
+**Back End**
+```
+cd backend/api
+go run .
+```
