@@ -48,10 +48,10 @@ type VMMError struct {
 
 func (e *VMMError) Error() string { return e.msg }
 
-func NewVMM(imageDir string, uploadDir string) *VMM {
+func NewVMM(imageDir string, uploadDir string) (*VMM, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	log.Printf("UPLOAD_DIR=%s\n", uploadDir)
 	log.Printf("IMAGE_DIR=%s\n", imageDir)
@@ -60,7 +60,7 @@ func NewVMM(imageDir string, uploadDir string) *VMM {
 		Client:    cli,
 		UploadDir: uploadDir,
 		ImageDir:  imageDir,
-	}
+	}, nil
 }
 
 // assume both the cuttlefish image and the default network exist on the host
@@ -120,7 +120,7 @@ func (v *VMM) CreateVM() (name string, err error) {
 	// the default bridge should have been created when the backend container started
 	networkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			DefaultNetwork: &network.EndpointSettings{},
+			DefaultNetwork: {},
 		},
 	}
 
@@ -145,8 +145,7 @@ func (v *VMM) StartVM(containerName string, options string) error {
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          []string{WorkDir + "/bin/launch_cvd", "--nostart_webrtc", "--start_vnc_server"},
-		//Cmd: []string{WorkDir + "/bin/launch_cvd", "--start_webrtc"},
-		Tty: true,
+		Tty:          true,
 	})
 	if err != nil {
 		return err
@@ -211,23 +210,30 @@ func (v *VMM) ListVM() ([]types.Container, error) {
 	}
 	vmList := []types.Container{}
 	for _, container := range containers {
-		if name := getCFContainerName(container); name != "" {
+		if isCuttlefishContainer(container) {
 			vmList = append(vmList, container)
 		}
 	}
 	return vmList, nil
 }
 
-func (v *VMM) RemoveVM(containerID string) error {
+func (v *VMM) RemoveVM(containerName string) error {
+	containerID, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return err
+	}
+
 	// TODO check if crosvm process has been stopped
-	err := v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{
+	err = v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{
 		Force: true,
 	})
 	if err != nil {
 		return err
 	}
-	name, _ := v.getContainerNameByID(containerID)
-	v.deleteImageFolder(name)
+
+	if err = v.deleteImageFolder(containerName); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -274,16 +280,24 @@ func (v *VMM) getContainerNameByID(containerID string) (name string, err error) 
 	if err != nil {
 		return "", err
 	}
-	return containerJSON.Name, nil
+	return containerJSON.Name[1:], nil
 }
 
-func (v *VMM) PrintVMs() {
-	vmList, _ := v.ListVM()
-	for i, container := range vmList {
-		if name := getCFContainerName(container); name != "" {
-			log.Printf("[%d] %s %s %s\n", i, container.ID[:10], container.Names, container.Image)
+func (v *VMM) getContainerIDByName(target string) (containerID string, err error) {
+	vmList, err := v.ListVM()
+	if err != nil {
+		return "", err
+	}
+	for _, vm := range vmList {
+		for _, name := range vm.Names {
+			// docker container names all start with "/"
+			prefix := "/" + VMPrefix
+			if strings.HasPrefix(name, prefix) && strings.Contains(name, target) {
+				return vm.ID, nil
+			}
 		}
 	}
+	return "", nil
 }
 
 // srcPath must be a tar archive
@@ -325,7 +339,7 @@ func (v *VMM) deleteImageFolder(containerName string) error {
 	path := path.Join(v.ImageDir, containerName)
 	err := os.RemoveAll(path)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	log.Printf("Deleted image folder %s for container %s\n", path, containerName)
 	return nil
@@ -374,15 +388,15 @@ func randSeq(n int) string {
 
 // get the VMPrefix name of a cuttlefish container
 // if it is not a cuttlefish container, return ""
-func getCFContainerName(container types.Container) string {
+func isCuttlefishContainer(container types.Container) bool {
 	for _, name := range container.Names {
 		// docker container names all start with "/"
 		prefix := "/" + VMPrefix
 		if strings.HasPrefix(name, prefix) {
-			return name[1:]
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
 func init() {

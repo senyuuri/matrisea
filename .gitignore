@@ -2,5 +2,7 @@ deps
 images
 upload
 backend/vmm/vmm
+backend/vmm/coverage.out
 backend/api/api
+backend/api/coverage.out
 frontend/node_modules

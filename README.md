@@ -32,6 +32,7 @@ docker-compose up -d
 **Prerequisites**
 - go v1.16+
 - docker v20+
+- run `docker ps` and see if you can access docker socket without `sudo`. If permission is denied, add your user to the `docker` group.
 
 **Preparation**
 1. Clone the repo and build cuttlefish image. Once finished, reboot to load additional kernel modules and apply udev rules.
@@ -64,6 +65,13 @@ yarn start
 ```
 
 **Back End**
+
+> ***For VSCode Users***
+> 
+> *`gopls` in VSCode can't corretly identify imports for go modules in subfolders. To resolve "cannot find packages" warnings, goto `File > Add folder to workspace` and import `backend/api` and `backend/vmm` respectively.*
+> *The [issue](https://github.com/golang/go/issues/32394) has been discussed in the community and is currently WIP.*
+
+
 ```
 cd backend/api
 go run .
