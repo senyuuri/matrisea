@@ -1,4 +1,0 @@
-{
-    "go.testFlags": ["-v"],
-    "go.testTimeout": "1800s",
-}

@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "backend/vmm"
+		},
+		{
+			"path": "backend/api"
+		}
+	],
+	"settings": {
+		"go.testFlags": ["-v"],
+		"go.testTimeout": "1800s",
+	}
+}
