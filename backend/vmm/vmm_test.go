@@ -11,19 +11,19 @@ import (
 var vmm *VMM
 var vmName string
 
-// CreateVM/RemoveVM are tested in setup()/shutdown() respectively
+// CreateVM/RemoveVM are tested in setup()/shutdown()
 func TestMain(m *testing.M) {
+	// vmm.PruneVMs()
 	setup()
 	retCode := m.Run()
-	shutdown()
+	// shutdown()
 	os.Exit(retCode)
 }
 
 func setup() {
 	var err error
 	vmm, err = NewVMM(
-		"/home/senyuuri/matrisea/images/",
-		"/home/senyuuri/matrisea/upload/",
+		"/home/senyuuri/matrisea/data/",
 	)
 	if err != nil {
 		fmt.Printf("Failed to create a docker API client. Reason: %s\n", err.Error())
@@ -41,7 +41,7 @@ func setup() {
 	cmd := fmt.Sprintf("docker ps | grep %s | grep -q Up", vmName)
 	err = exec.Command("bash", "-c", cmd).Run()
 	if err != nil {
-		fmt.Printf("Failed to CreateVM() because container isn't created or isn't running.\n")
+		fmt.Printf("Failed to CreateVM() because the container isn't created or isn't running.\n")
 		os.Exit(1)
 	}
 }
@@ -50,6 +50,14 @@ func shutdown() {
 	err := vmm.RemoveVM(vmName)
 	if err != nil {
 		fmt.Printf("Failed to RemoveVM(). Reason: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	cmd := fmt.Sprintf("docker ps | grep -q %s", vmName)
+	err = exec.Command("bash", "-c", cmd).Run()
+	// nil err means grep returns zero, i.e. the container is still running
+	if err == nil {
+		fmt.Printf("DeleteVM() succeeded but the container is still running.\n")
 		os.Exit(1)
 	}
 }
@@ -81,22 +89,21 @@ func TestGetContainerNameByID(t *testing.T) {
 	}
 }
 
+func TestStartStopVM(t *testing.T) {
+	err := vmm.StartVM(vmName, "")
+	if err != nil {
+		t.Log(err.Error())
+		t.Fail()
+	}
+
+	// time.Sleep(30 * time.Second)
+	// check if cvd log file is created in the container
+
+	// wait until VM is ready
+
+	// vmm.StopVM(vmName)
+}
+
 func TestVMMIntegration(t *testing.T) {
 
-	// vmm.PruneVMs()
-	// _, err := vmm.CreateVM()
-	// if err != nil {
-	// 	t.Fatalf(err.Error())
-	// }
-
-	// vmm.LoadImages(
-	// 	name,
-	// 	"/data/workspace/matrisea/upload/aosp_cf_x86_64_phone-img-7530437.zip",
-	// 	"/data/workspace/matrisea/upload/cvd-host_package.tar",
-	// )
-
-	// vms, _ := vmm.ListVM()
-	// vmm.StartVM(getCFContainerName(vms[0]), "")
-	// time.Sleep(30 * time.Second)
-	// vmm.StopVM(getCFContainerName(vms[0]))
 }

@@ -26,11 +26,11 @@ import (
 //
 // More details: https://github.com/moby/moby/issues/38243
 var (
-	VMPrefix       = "matrisea-cvd-"                   // container name prefix
-	DefaultNetwork = "bridge"                          // use docker's default bridge
-	CFImage        = "cuttlefish:latest"               // cuttlefish image
-	ImageDir       = "/data/workspace/matrisea/images" // TODO read it from env
-	WorkDir        = "/home/vsoc-01"                   // workdir inside container
+	VMPrefix       = "matrisea-cvd-"     // container name prefix
+	DefaultNetwork = "bridge"            // use docker's default bridge
+	CFImage        = "cuttlefish:latest" // cuttlefish image
+	WorkDir        = "/home/vsoc-01"     // workdir in container
+	ROImageDir     = "/root/images"      //read-only device image dir in container
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -38,8 +38,9 @@ var (
 // Due to the one-one mapping, the word `VM` and `container` are sometimes used interchagably.
 type VMM struct {
 	Client    *client.Client // Docker Engine client
-	UploadDir string         // path of uploaded files
-	ImageDir  string         // path of device images
+	DataDir   string
+	ImagesDir string
+	VmsDir    string
 }
 
 type VMMError struct {
@@ -48,28 +49,50 @@ type VMMError struct {
 
 func (e *VMMError) Error() string { return e.msg }
 
-func NewVMM(imageDir string, uploadDir string) (*VMM, error) {
+func NewVMM(dataDir string) (*VMM, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("UPLOAD_DIR=%s\n", uploadDir)
-	log.Printf("IMAGE_DIR=%s\n", imageDir)
+
+	// populate initial data folder structure
+	imagesDir := path.Join(dataDir, "images")
+	vmsDir := path.Join(dataDir, "vms")
+	folders := []string{
+		dataDir,
+		imagesDir,
+		vmsDir,
+	}
+	for _, f := range folders {
+		if _, err := os.Stat(f); os.IsNotExist(err) {
+			err := os.Mkdir(f, 0755)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	log.Printf("DATA_DIR=%s\n", dataDir)
 
 	return &VMM{
 		Client:    cli,
-		UploadDir: uploadDir,
-		ImageDir:  imageDir,
+		DataDir:   dataDir,
+		ImagesDir: imagesDir,
+		VmsDir:    vmsDir,
 	}, nil
 }
 
 // assume both the cuttlefish image and the default network exist on the host
-func (v *VMM) CreateVM() (name string, err error) {
+// a baseDevice represents a set of default images to be mounted to the container
+func (v *VMM) CreateVM(baseDevice string) (name string, err error) {
 	ctx := context.Background()
 	vmName := VMPrefix + randSeq(6)
 
-	// dedicate a folder on the host for storing VM images
-	imageDir := v.createImageFolder(vmName)
+	// dedicate a folder on the host for storing VM data
+	_, err = v.createVMFolder(vmName)
+	if err != nil {
+		return "", err
+	}
 
 	// create a new VM
 	containerConfig := &container.Config{
@@ -89,6 +112,11 @@ func (v *VMM) CreateVM() (name string, err error) {
 		// },
 	}
 
+	imageDir := path.Join(v.ImagesDir, baseDevice)
+	if _, err := os.Stat(imageDir); os.IsNotExist(err) {
+		return "", err
+	}
+
 	hostConfig := &container.HostConfig{
 		Privileged: true,
 		Mounts: []mount.Mount{
@@ -101,8 +129,8 @@ func (v *VMM) CreateVM() (name string, err error) {
 			{
 				Type:     mount.TypeBind,
 				Source:   imageDir,
-				Target:   WorkDir,
-				ReadOnly: false,
+				Target:   ROImageDir,
+				ReadOnly: true,
 			},
 		},
 		// TODO disable VNC port binding in production
@@ -132,7 +160,46 @@ func (v *VMM) CreateVM() (name string, err error) {
 		return "", err
 	}
 	log.Printf("Created VM %s %s\n", vmName, resp.ID)
+
+	// WorkDir in the container is mounted read-only
+	// need to mount another writable layer on top of it to allow cuttlefish to write runtime temporary files
+	err = v.initVMOverlayFS(vmName)
+	if err != nil {
+		log.Fatalf("Failed to initialise overlayFS for %s. Reason %s \n", vmName, err.Error())
+		return "", err
+	}
 	return vmName, nil
+}
+
+// create `upper` and `work` dirs inside a tmpfs in a container, use the read-only device image folder as
+// `lower`, combine them and mount it as an overlay FS at WorkDir location
+//
+// Since the `baseDevice` folder is mounted as read-only to allow device image reuse, we need to create
+// another writable layer on top of it to support copy-on-write for use cases such as to allow cuttlefish
+// to write runtime tmp files in WorkDir. `upper` is created in tmpfs to create a tmpfs-on-overlay setup.
+// We want to avoid mounting `upper` from a local dir (which is already an overlay) because overlay-on-overlay
+// is deprecated since kernel 4.4+.
+//
+// The function requires the container to run as `--privileged` or `--cap-add=SYS_ADMIN` to support mounting
+//
+// Relevant discussion about overlay-on-overlay:
+// - https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1629509
+// - https://github.com/torvalds/linux/commit/76bc8e2843b66f8205026365966b49ec6da39ae7
+func (v *VMM) initVMOverlayFS(vmName string) error {
+	cmd := fmt.Sprintf(
+		`mkdir -p /tmp/overlay && \
+		mount -t tmpfs tmpfs /tmp/overlay && \
+		mkdir -p /tmp/overlay/{upper,work} && \
+		mount -t overlay overlay -o lowerdir=%s,upperdir=/tmp/overlay/upper,workdir=/tmp/overlay/work %s`,
+		ROImageDir,
+		WorkDir,
+	)
+	err := exec.Command("bash", "-c", cmd).Run()
+	if err != nil {
+		fmt.Printf("Failed to initialize overlayFS inside of the container\n")
+		return err
+	}
+	return nil
 }
 
 // run launch_cvd inside of a running container
@@ -159,8 +226,6 @@ func (v *VMM) StartVM(containerName string, options string) error {
 
 	// TODO check return code
 	defer hijackedResp.Close()
-	// input of interactive shell
-	hijackedResp.Conn.Write([]byte("ls\r"))
 	scanner := bufio.NewScanner(hijackedResp.Conn)
 	for scanner.Scan() {
 		fmt.Println(scanner.Text())
@@ -190,8 +255,6 @@ func (v *VMM) StopVM(containerName string) error {
 	}
 
 	defer hijackedResp.Close()
-	// input of interactive shell
-	// hijackedResp.Conn.Write([]byte("ls\r"))
 	scanner := bufio.NewScanner(hijackedResp.Conn)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -231,7 +294,7 @@ func (v *VMM) RemoveVM(containerName string) error {
 		return err
 	}
 
-	if err = v.deleteImageFolder(containerName); err != nil {
+	if err = v.deleteVMFolder(containerName); err != nil {
 		return err
 	}
 	return nil
@@ -242,7 +305,7 @@ func (v *VMM) PruneVMs() {
 	log.Println("PruneVMs called")
 	vmList, _ := v.ListVM()
 	for _, vm := range vmList {
-		err := v.RemoveVM(vm.ID)
+		err := v.RemoveVM(vm.Names[0][1:])
 		if err != nil {
 			panic(err)
 		}
@@ -322,29 +385,31 @@ func (v *VMM) CopyToContainer(srcPath string, containerID string, dstPath string
 	return nil
 }
 
-// create a folder on the host and bind mount it to a given container
-// preferred over CopyToContainer() as it saves both time and space
-// (for keeping two copies of images larger than 10GB)
-func (v *VMM) createImageFolder(containerName string) string {
-	path := path.Join(v.ImageDir, containerName)
-	err := os.MkdirAll(path, 0755)
+// create a VM specific data folder and initialise 3 subfolders for overlayFS,
+// namely `upper`, `work`, and `merge`
+func (v *VMM) createVMFolder(containerName string) (string, error) {
+	parent := path.Join(v.VmsDir, containerName)
+
+	err := os.Mkdir(parent, 0755)
 	if err != nil {
 		log.Fatal(err)
+		return "", err
 	}
-	log.Printf("Created image folder %s for container %s\n", path, containerName)
-	return path
+	log.Printf("Created data folder %s for container %s\n", parent, containerName)
+	return parent, nil
 }
 
-func (v *VMM) deleteImageFolder(containerName string) error {
-	path := path.Join(v.ImageDir, containerName)
+func (v *VMM) deleteVMFolder(containerName string) error {
+	path := path.Join(v.VmsDir, containerName)
 	err := os.RemoveAll(path)
 	if err != nil {
 		return err
 	}
-	log.Printf("Deleted image folder %s for container %s\n", path, containerName)
+	log.Printf("Deleted data folder %s for container %s\n", path, containerName)
 	return nil
 }
 
+// DEPRECATED
 // copy aosp and cvd image into the container's image folder
 // expect aosp image to be .zip and cvd image to be .tar, as per android CI's default packaing
 func (v *VMM) LoadImages(containerName string, aosp_zip string, cvd_tar string) error {
@@ -354,7 +419,7 @@ func (v *VMM) LoadImages(containerName string, aosp_zip string, cvd_tar string) 
 	if _, err := os.Stat(cvd_tar); os.IsNotExist(err) {
 		return err
 	}
-	imageDir := path.Join(v.ImageDir, containerName)
+	imageDir := path.Join(v.ImagesDir, containerName)
 	cmd := exec.Command("unzip", aosp_zip, "-d", imageDir)
 	if err := cmd.Start(); err != nil {
 		panic(err)

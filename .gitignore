@@ -1,6 +1,5 @@
 deps
-images
-upload
+data
 backend/vmm/vmm
 backend/vmm/coverage.out
 backend/api/api
