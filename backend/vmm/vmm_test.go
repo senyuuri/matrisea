@@ -31,7 +31,7 @@ func setup() {
 	}
 
 	// create a common VM for other tests
-	vmName, err = vmm.CreateVM()
+	vmName, err = vmm.CreateVM("android11-gsi-cf")
 	if err != nil {
 		fmt.Printf("Failed to CreateVM(). Reason: %s\n", err.Error())
 		os.Exit(1)

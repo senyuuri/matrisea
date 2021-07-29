@@ -189,15 +189,19 @@ func (v *VMM) initVMOverlayFS(vmName string) error {
 	cmd := fmt.Sprintf(
 		`mkdir -p /tmp/overlay && \
 		mount -t tmpfs tmpfs /tmp/overlay && \
-		mkdir -p /tmp/overlay/{upper,work} && \
+		mkdir -p /tmp/overlay/upper && \
+		mkdir -p /tmp/overlay/work && \
 		mount -t overlay overlay -o lowerdir=%s,upperdir=/tmp/overlay/upper,workdir=/tmp/overlay/work %s`,
 		ROImageDir,
 		WorkDir,
 	)
-	err := exec.Command("bash", "-c", cmd).Run()
+	result, err := ContainerExec(context.Background(), v.Client, vmName, cmd, "root")
 	if err != nil {
-		fmt.Printf("Failed to initialize overlayFS inside of the container\n")
 		return err
+	}
+	if result.ExitCode != 0 {
+		log.Fatalf("Failed to initialize overlayFS for VM %s\n", vmName)
+		return &VMMError{"Failed to initialize overlayFS"}
 	}
 	return nil
 }
