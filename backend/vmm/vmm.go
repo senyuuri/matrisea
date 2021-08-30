@@ -200,7 +200,7 @@ func (v *VMM) initVMOverlayFS(vmName string) error {
 		return err
 	}
 	if result.ExitCode != 0 {
-		log.Fatalf("Failed to initialize overlayFS for VM %s\n", vmName)
+		log.Fatalf("Failed to initialize overlayFS for VM %s, reason: %s\n", vmName, result.outBuffer.String())
 		return &VMMError{"Failed to initialize overlayFS"}
 	}
 	return nil
@@ -208,8 +208,7 @@ func (v *VMM) initVMOverlayFS(vmName string) error {
 
 // run launch_cvd inside of a running container
 // notice StartVM() doesn't check for succeesful VM boot as it could take a long time
-func (v *VMM) StartVM(containerName string, options string) error {
-	log.Printf("StartVM %s with options: %s\n", containerName, options)
+func (v *VMM) StartVM(containerName string, options string) (execID string, err error) {
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
@@ -219,22 +218,45 @@ func (v *VMM) StartVM(containerName string, options string) error {
 		Tty:          true,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	// launch_cvd only starts running when a tty is attached
-	hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
+	// cmd only starts after ContainerExecAttach
+	aresp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
 	if err != nil {
-		return err
+		return "", err
+	}
+	defer aresp.Close()
+
+	outputDone := make(chan int)
+
+	go func() {
+		scanner := bufio.NewScanner(aresp.Conn)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fmt.Println(line)
+		}
+		outputDone <- 0
+	}()
+
+	select {
+	case <-outputDone:
+		log.Println("EOF")
+	case <-time.After(5 * time.Second):
+		// TODO test what happens when VM start successfully but timeout
+		log.Println("Timeout")
 	}
 
-	// TODO check return code
-	defer hijackedResp.Close()
-	scanner := bufio.NewScanner(hijackedResp.Conn)
-	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+	iresp, err := v.Client.ContainerExecInspect(ctx, resp.ID)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if iresp.ExitCode != 0 {
+		err_msg := fmt.Sprintf("VM exited with non-zero error code: %d", iresp.ExitCode)
+		return "", &VMMError{msg: err_msg}
+	}
+	log.Printf("VM %s started\n", containerName)
+	return "", nil
 }
 
 // kill launch_cvd process in the container
@@ -270,8 +292,8 @@ func (v *VMM) StopVM(containerName string) error {
 	return &VMMError{msg: "failed to stop the VM"}
 }
 
-func (v *VMM) ListVM() ([]types.Container, error) {
-	containers, err := v.Client.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+func (v *VMM) listVM(ctx context.Context) ([]types.Container, error) {
+	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +329,7 @@ func (v *VMM) RemoveVM(containerName string) error {
 // remove all managed VMs
 func (v *VMM) PruneVMs() {
 	log.Println("PruneVMs called")
-	vmList, _ := v.ListVM()
+	vmList, _ := v.listVM(context.Background())
 	for _, vm := range vmList {
 		err := v.RemoveVM(vm.Names[0][1:])
 		if err != nil {
@@ -351,7 +373,7 @@ func (v *VMM) getContainerNameByID(containerID string) (name string, err error) 
 }
 
 func (v *VMM) getContainerIDByName(target string) (containerID string, err error) {
-	vmList, err := v.ListVM()
+	vmList, err := v.listVM(context.Background())
 	if err != nil {
 		return "", err
 	}
@@ -396,7 +418,7 @@ func (v *VMM) createVMFolder(containerName string) (string, error) {
 
 	err := os.Mkdir(parent, 0755)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 		return "", err
 	}
 	log.Printf("Created data folder %s for container %s\n", parent, containerName)
