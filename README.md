@@ -53,26 +53,23 @@ docker-compose up -d
    unzip aosp_cf_x86_64_phone-img-xxxxxx.zip
    ```
 
-**Front End**
+**Frontend**
 ```
-# install dependencies
 sudo apt install -y npm
 sudo npm install -g yarn
 cd frontend && yarn install
 
-# start the development server
 yarn start
 ```
 
-**Back End**
-
-> ***For VSCode Users***
-> 
-> *`gopls` in VSCode can't corretly identify imports for go modules in subfolders. To resolve "cannot find packages" warnings, goto `File > Add folder to workspace` and import `backend/api` and `backend/vmm` respectively.*
-> *The [issue](https://github.com/golang/go/issues/32394) has been discussed in the community and is currently WIP.*
-
+**Backend**
 
 ```
 cd backend/api
 go run .
 ```
+> *For VSCode Users*
+> 
+> *`gopls` in VSCode can't corretly identify imports for go modules in subfolders. To resolve "cannot find packages" warnings, goto `File > Add folder to workspace` and import `backend/api` and `backend/vmm` respectively.*
+> *The [issue](https://github.com/golang/go/issues/32394) has been discussed in the community and is currently WIP.*
+

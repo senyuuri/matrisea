@@ -1,0 +1,58 @@
+@import '~antd/dist/antd.css';
+
+.site-layout-content {
+  min-height: 280px;
+  padding-top: 15px;
+  background: #fff;
+}
+.logo {
+  float: left;
+  width: 80px;
+  height: 100%;
+  background: rgb(255, 255, 255);
+}
+
+.logo-text {
+  color:rgb(187, 187, 187);
+  font-size: 2em;
+  padding-top: 10px;
+}
+
+.ant-row-rtl .logo {
+  float: right;
+  margin: 16px 0 16px 24px;
+}
+
+.ant-layout-header {
+  background: #fff;
+}
+
+.ant-layout-content {
+  background: #fff;
+}
+
+.ant-upload-list-item {
+  float: left;
+  width: 100%;
+  margin-right: 8px;
+}
+
+.ant-upload-list-picture .ant-upload-list-item, .ant-upload-list-picture-card .ant-upload-list-item {
+  height: 40px;
+}
+
+.ant-page-header {
+  padding-left: 0;
+}
+
+#vnc-canvas {
+  height: 100%;
+}
+
+#detail-flex-content {
+  min-height: 500px;
+}
+
+.xterm-screen {
+  min-height: 500px;
+}

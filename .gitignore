@@ -1,7 +1,15 @@
+# local data 
 deps
 data
-backend/vmm/vmm
-backend/vmm/coverage.out
-backend/api/api
-backend/api/coverage.out
+
+# go misc
+vmm/vmm
+api/api
+*coverage.out
+*__debug_bin
+
+# web misc
 frontend/node_modules
+
+# dev env
+workspace.code-workspace

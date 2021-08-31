@@ -4,10 +4,10 @@
 			"path": "."
 		},
 		{
-			"path": "backend/vmm"
+			"path": "vmm"
 		},
 		{
-			"path": "backend/api"
+			"path": "api"
 		}
 	],
 	"settings": {
