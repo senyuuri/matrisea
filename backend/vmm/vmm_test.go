@@ -2,6 +2,8 @@ package vmm
 
 import (
 	"fmt"
+	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -13,7 +15,6 @@ var vmName string
 
 // CreateVM/RemoveVM are tested in setup()/shutdown()
 func TestMain(m *testing.M) {
-	// vmm.PruneVMs()
 	setup()
 	retCode := m.Run()
 	// shutdown()
@@ -29,6 +30,9 @@ func setup() {
 		fmt.Printf("Failed to create a docker API client. Reason: %s\n", err.Error())
 		os.Exit(1)
 	}
+
+	// TODO: for local debugging only. to be removed
+	vmm.PruneVMs()
 
 	// create a common VM for other tests
 	vmName, err = vmm.CreateVM("android11-gsi-cf")
@@ -65,14 +69,13 @@ func shutdown() {
 func TestGetContainerIDByName(t *testing.T) {
 	containerID, err := vmm.getContainerIDByName(vmName)
 	if err != nil {
-		t.Log(err.Error())
-		t.Fail()
+		t.Error(err.Error())
 	}
 
 	cmd := fmt.Sprintf("docker ps | grep %s | grep -q %s", vmName, containerID[:12])
 	err = exec.Command("bash", "-c", cmd).Run()
 	if err != nil {
-		t.Fail()
+		t.Error(err.Error())
 	}
 }
 
@@ -80,20 +83,47 @@ func TestGetContainerNameByID(t *testing.T) {
 	cmd := fmt.Sprintf("docker ps | grep %s | cut -d ' ' -f 1 | tr -d $'\n'", vmName)
 	resp, err := exec.Command("bash", "-c", cmd).Output()
 	if err != nil {
-		t.Fail()
+		t.Error(err.Error())
 	}
 	containerID := strings.TrimRight(string(resp), "\n")
 	name, err := vmm.getContainerNameByID(containerID)
 	if err != nil || name != vmName {
-		t.Fail()
+		t.Error(err.Error())
+	}
+}
+
+func TestCopyToContainer(t *testing.T) {
+	dir, err := ioutil.TempDir("", "matrisea-test")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	cmd := exec.Command("sh", "-c", "touch testfile && tar -cvf test.tar testfile")
+	cmd.Dir = dir
+	err = cmd.Run()
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	err = vmm.CopyToContainer(dir+"/test.tar", vmName, "/home/vsoc-01")
+	if err != nil {
+		t.Error(err.Error())
+	}
+	cmd = exec.Command("docker", "exec", vmName, "ls", "/home/vsoc-01/testfile")
+	if err := cmd.Run(); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			if exitError.ExitCode() != 0 {
+				t.Error(err.Error())
+			}
+		}
 	}
 }
 
 func TestStartStopVM(t *testing.T) {
-	err := vmm.StartVM(vmName, "")
+	_, err := vmm.StartVM(vmName, "")
 	if err != nil {
-		t.Log(err.Error())
-		t.Fail()
+		t.Error(err.Error())
 	}
 
 	// time.Sleep(30 * time.Second)

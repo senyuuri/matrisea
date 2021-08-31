@@ -2,6 +2,7 @@ package vmm
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // for DefaultNetwork: although the ideal design is to setup a new bridge network so as
@@ -26,11 +28,11 @@ import (
 //
 // More details: https://github.com/moby/moby/issues/38243
 var (
-	VMPrefix       = "matrisea-cvd-"     // container name prefix
-	DefaultNetwork = "bridge"            // use docker's default bridge
-	CFImage        = "cuttlefish:latest" // cuttlefish image
-	WorkDir        = "/home/vsoc-01"     // workdir in container
-	ROImageDir     = "/root/images"      //read-only device image dir in container
+	VMPrefix       = "matrisea-cvd-" // container name prefix
+	DefaultNetwork = "bridge"        // use docker's default bridge
+	CFImage        = "cuttlefish"    // cuttlefish image name
+	WorkDir        = "/home/vsoc-01" // workdir in container
+	ROImageDir     = "/root/images"  //read-only device image dir in container
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -45,6 +47,28 @@ type VMM struct {
 
 type VMMError struct {
 	msg string // description of error
+}
+
+// ExecResult represents a result returned from Exec()
+type ExecResult struct {
+	ExitCode  int
+	outBuffer *bytes.Buffer
+	errBuffer *bytes.Buffer
+}
+
+// Stdout returns stdout output of a command run by Exec()
+func (res *ExecResult) Stdout() string {
+	return res.outBuffer.String()
+}
+
+// Stderr returns stderr output of a command run by Exec()
+func (res *ExecResult) Stderr() string {
+	return res.errBuffer.String()
+}
+
+// Combined returns combined stdout and stderr output of a command run by Exec()
+func (res *ExecResult) Combined() string {
+	return res.outBuffer.String() + res.errBuffer.String()
 }
 
 func (e *VMMError) Error() string { return e.msg }
@@ -96,7 +120,7 @@ func (v *VMM) CreateVM(baseDevice string) (name string, err error) {
 
 	// create a new VM
 	containerConfig := &container.Config{
-		Image:    "cuttlefish",
+		Image:    CFImage,
 		Hostname: vmName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
 			"cf_instance":     "0",
@@ -161,49 +185,7 @@ func (v *VMM) CreateVM(baseDevice string) (name string, err error) {
 	}
 	log.Printf("Created VM %s %s\n", vmName, resp.ID)
 
-	// WorkDir in the container is mounted read-only
-	// need to mount another writable layer on top of it to allow cuttlefish to write runtime temporary files
-	err = v.initVMOverlayFS(vmName)
-	if err != nil {
-		log.Fatalf("Failed to initialise overlayFS for %s. Reason %s \n", vmName, err.Error())
-		return "", err
-	}
 	return vmName, nil
-}
-
-// create `upper` and `work` dirs inside a tmpfs in a container, use the read-only device image folder as
-// `lower`, combine them and mount it as an overlay FS at WorkDir location
-//
-// Since the `baseDevice` folder is mounted as read-only to allow device image reuse, we need to create
-// another writable layer on top of it to support copy-on-write for use cases such as to allow cuttlefish
-// to write runtime tmp files in WorkDir. `upper` is created in tmpfs to create a tmpfs-on-overlay setup.
-// We want to avoid mounting `upper` from a local dir (which is already an overlay) because overlay-on-overlay
-// is deprecated since kernel 4.4+.
-//
-// The function requires the container to run as `--privileged` or `--cap-add=SYS_ADMIN` to support mounting
-//
-// Relevant discussion about overlay-on-overlay:
-// - https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1629509
-// - https://github.com/torvalds/linux/commit/76bc8e2843b66f8205026365966b49ec6da39ae7
-func (v *VMM) initVMOverlayFS(vmName string) error {
-	cmd := fmt.Sprintf(
-		`mkdir -p /tmp/overlay && \
-		mount -t tmpfs tmpfs /tmp/overlay && \
-		mkdir -p /tmp/overlay/upper && \
-		mkdir -p /tmp/overlay/work && \
-		mount -t overlay overlay -o lowerdir=%s,upperdir=/tmp/overlay/upper,workdir=/tmp/overlay/work %s`,
-		ROImageDir,
-		WorkDir,
-	)
-	result, err := ContainerExec(context.Background(), v.Client, vmName, cmd, "root")
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != 0 {
-		log.Fatalf("Failed to initialize overlayFS for VM %s, reason: %s\n", vmName, result.outBuffer.String())
-		return &VMMError{"Failed to initialize overlayFS"}
-	}
-	return nil
 }
 
 // run launch_cvd inside of a running container
@@ -389,12 +371,18 @@ func (v *VMM) getContainerIDByName(target string) (containerID string, err error
 	return "", nil
 }
 
-// srcPath must be a tar archive
-func (v *VMM) CopyToContainer(srcPath string, containerID string, dstPath string) error {
+// srcPath must be a tar file because that's the only thing that CopyToContainer() supports
+// The API returns no error if trying to copy a non-tar file
+func (v *VMM) CopyToContainer(srcPath string, containerName string, dstPath string) error {
+	containerID, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return err
+	}
+
 	log.Printf("Load file into container %s:\n", containerID)
 	log.Printf("src: %s\n", srcPath)
 	log.Printf("dst: %s\n", dstPath)
-	// TODO support loding non-tar files and directories. check if src is not a tar file, tar first
+
 	archive, err := os.Open(srcPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -404,11 +392,70 @@ func (v *VMM) CopyToContainer(srcPath string, containerID string, dstPath string
 	}
 	defer archive.Close()
 
-	opts := types.CopyToContainerOptions{}
-	if err := v.Client.CopyToContainer(context.TODO(), containerID, dstPath, bufio.NewReader(archive), opts); err != nil {
-		log.Fatalf("%v", err)
+	err = v.Client.CopyToContainer(context.Background(), containerID, dstPath, bufio.NewReader(archive), types.CopyToContainerOptions{})
+	if err != nil {
+		return err
 	}
 	return nil
+}
+
+// Adapted from moby's exec implementation
+// source: https://github.com/moby/moby/blob/master/integration/internal/container/exec.go
+
+// Exec executes a command inside a container, returning the result
+// containing stdout, stderr, and exit code. Note:
+//  - this is a synchronous operation;
+//  - cmd stdin is closed.
+func (v *VMM) ContainerExec(containerName string, cmd string) (ExecResult, error) {
+	ctx := context.Background()
+	// prepare exec
+	execConfig := types.ExecConfig{
+		User:         "vsoc-01",
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          []string{"/bin/sh", "-c", cmd},
+	}
+	cresp, err := v.Client.ContainerExecCreate(ctx, containerName, execConfig)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	execID := cresp.ID
+
+	// run it, with stdout/stderr attached
+	aresp, err := v.Client.ContainerExecAttach(ctx, execID, types.ExecStartCheck{})
+	if err != nil {
+		return ExecResult{}, err
+	}
+	defer aresp.Close()
+
+	// read the output
+	var outBuf, errBuf bytes.Buffer
+	outputDone := make(chan error, 1)
+
+	go func() {
+		// StdCopy demultiplexes the stream into two buffers
+		_, err = stdcopy.StdCopy(&outBuf, &errBuf, aresp.Reader)
+		outputDone <- err
+	}()
+
+	select {
+	case err := <-outputDone:
+		if err != nil {
+			return ExecResult{}, err
+		}
+		break
+
+	case <-ctx.Done():
+		return ExecResult{}, ctx.Err()
+	}
+
+	// get the exit code
+	iresp, err := v.Client.ContainerExecInspect(ctx, execID)
+	if err != nil {
+		return ExecResult{}, err
+	}
+
+	return ExecResult{ExitCode: iresp.ExitCode, outBuffer: &outBuf, errBuffer: &errBuf}, nil
 }
 
 // create a VM specific data folder and initialise 3 subfolders for overlayFS,
@@ -435,7 +482,6 @@ func (v *VMM) deleteVMFolder(containerName string) error {
 	return nil
 }
 
-// DEPRECATED
 // copy aosp and cvd image into the container's image folder
 // expect aosp image to be .zip and cvd image to be .tar, as per android CI's default packaing
 func (v *VMM) LoadImages(containerName string, aosp_zip string, cvd_tar string) error {
