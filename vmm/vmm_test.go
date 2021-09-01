@@ -93,7 +93,7 @@ func TestGetContainerNameByID(t *testing.T) {
 	}
 }
 
-func TestCopyToContainer(t *testing.T) {
+func TestCopyTarToContainer(t *testing.T) {
 	dir, err := ioutil.TempDir("", "matrisea-test")
 	if err != nil {
 		log.Fatal(err)
@@ -121,6 +121,47 @@ func TestCopyToContainer(t *testing.T) {
 	}
 }
 
+func TestCopyNonTarToContainer(t *testing.T) {
+	dir, err := ioutil.TempDir("", "matrisea-test")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	cmd := exec.Command("sh", "-c", "touch testfile")
+	cmd.Dir = dir
+	err = cmd.Run()
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	err = vmm.CopyToContainer(dir+"/testfile", vmName, "/home/vsoc-01")
+	if err != nil {
+		t.Error(err.Error())
+	}
+	cmd = exec.Command("docker", "exec", vmName, "ls", "/home/vsoc-01/testfile")
+	if err := cmd.Run(); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			if exitError.ExitCode() != 0 {
+				t.Error(err.Error())
+			}
+		}
+	}
+}
+
+func TestContainerExec(t *testing.T) {
+	resp, err := vmm.ContainerExec(vmName, "uname -a")
+	if err != nil {
+		t.Error(err.Error())
+	}
+	log.Println(resp.ExitCode)
+	log.Println(resp.outBuffer.String())
+	log.Println(resp.errBuffer.String())
+	if resp.ExitCode != 0 || !strings.Contains(resp.outBuffer.String(), "Linux") {
+		t.Error()
+	}
+}
+
 // test the full cycle from loading device images to start/stop VM
 // assumes images have already been downloaded into the `images` folder
 //
@@ -131,6 +172,20 @@ func TestVMMIntegration(t *testing.T) {
 			cperr := vmm.CopyToContainer(path, vmName, "/home/vsoc-01")
 			if cperr != nil {
 				t.Error(cperr.Error())
+			}
+
+			if strings.HasSuffix(path, ".zip") {
+				_, srcFile := filepath.Split(path)
+				resp, err := vmm.ContainerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/")
+				log.Println(resp.ExitCode)
+				log.Println(resp.outBuffer.String())
+				log.Println(resp.errBuffer.String())
+				if err != nil {
+					t.Error(cperr.Error())
+				}
+				if resp.ExitCode != 0 {
+					t.Error()
+				}
 			}
 		}
 		return nil

@@ -396,9 +396,9 @@ func (v *VMM) CopyToContainer(srcPath string, containerName string, dstPath stri
 		return err
 	}
 	defer os.RemoveAll(tmpdir)
-	_, srcFile := filepath.Split(srcPath)
+	srcFolder, srcFile := filepath.Split(srcPath)
 
-	cmdStr := fmt.Sprintf("tar -cvf %s/%s.tar %s", tmpdir, srcFile, srcPath)
+	cmdStr := fmt.Sprintf("cd %s && tar -cvzf %s/%s.tar %s", srcFolder, tmpdir, srcFile, srcFile)
 
 	// TODO read stderr and always print to console
 	cmd := exec.Command("sh", "-c", cmdStr)
@@ -449,6 +449,7 @@ func (v *VMM) copyToContainer(srcPath string, containerName string, dstPath stri
 //  - this is a synchronous operation;
 //  - cmd stdin is closed.
 func (v *VMM) ContainerExec(containerName string, cmd string) (ExecResult, error) {
+	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
 	ctx := context.Background()
 	// prepare exec
 	execConfig := types.ExecConfig{
