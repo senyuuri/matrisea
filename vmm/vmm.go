@@ -34,6 +34,7 @@ var (
 	DefaultNetwork = "bridge"        // use docker's default bridge
 	CFImage        = "cuttlefish"    // cuttlefish image name
 	HomeDir        = "/home/vsoc-01" // workdir in container
+	TimeoutVMStart = 120 * time.Second
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -184,6 +185,7 @@ func (v *VMM) VMCreate(baseDevice string) (name string, err error) {
 // run launch_cvd inside of a running container
 // notice VMStart() doesn't check for succeesful VM boot as it could take a long time
 func (v *VMM) VMStart(containerName string, options string) (execID string, err error) {
+	start := time.Now()
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
@@ -210,28 +212,24 @@ func (v *VMM) VMStart(containerName string, options string) (execID string, err 
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Println(line)
+			if strings.Contains(line, "VIRTUAL_DEVICE_BOOT_COMPLETED") {
+				outputDone <- 1
+			}
 		}
 		outputDone <- 0
 	}()
 
 	select {
-	case <-outputDone:
-		log.Println("EOF")
-	case <-time.After(5 * time.Second):
-		// TODO test what happens when VM start successfully but timeout
-		log.Println("Timeout")
+	case done := <-outputDone:
+		if done == 1 {
+			elapsed := time.Since(start)
+			log.Printf("VMStart successfully in %s\n", elapsed)
+			return "", nil
+		}
+		return "", &VMMError{msg: "VMStart EOF while reading output"}
+	case <-time.After(TimeoutVMStart):
+		return "", &VMMError{msg: "VMStart timeout"}
 	}
-
-	iresp, err := v.Client.ContainerExecInspect(ctx, resp.ID)
-	if err != nil {
-		return "", err
-	}
-	if iresp.ExitCode != 0 {
-		err_msg := fmt.Sprintf("VM exited with non-zero error code: %d", iresp.ExitCode)
-		return "", &VMMError{msg: err_msg}
-	}
-	log.Printf("VM %s started\n", containerName)
-	return "", nil
 }
 
 // kill launch_cvd process in the container
@@ -277,9 +275,10 @@ func (v *VMM) VMRemove(containerName string) error {
 		return err
 	}
 
-	// TODO check if crosvm process has been stopped
 	err = v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{
 		Force: true,
+		// required since /home/vsoc-01 is mounted as an anonymous volume
+		RemoveVolumes: true,
 	})
 	if err != nil {
 		return err
@@ -437,6 +436,7 @@ func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath
 //  - cmd stdin is closed.
 func (v *VMM) containerExec(containerName string, cmd string) (ExecResult, error) {
 	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
+	start := time.Now()
 	ctx := context.Background()
 	// prepare exec
 	execConfig := types.ExecConfig{
@@ -485,6 +485,11 @@ func (v *VMM) containerExec(containerName string, cmd string) (ExecResult, error
 		return ExecResult{}, err
 	}
 
+	elapsed := time.Since(start)
+	log.Printf("  ExitCode: %d\n", iresp.ExitCode)
+	log.Printf("  stdout: %s\n", outBuf.String())
+	log.Printf("  stderr: %s\n", errBuf.String())
+	log.Printf("  ContainerExec completed in %s\n", elapsed)
 	return ExecResult{ExitCode: iresp.ExitCode, outBuffer: &outBuf, errBuffer: &errBuf}, nil
 }
 

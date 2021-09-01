@@ -171,32 +171,29 @@ func TestVMMIntegration(t *testing.T) {
 		if !f.IsDir() {
 			cperr := vmm.containerCopyFile(path, vmName, "/home/vsoc-01")
 			if cperr != nil {
-				t.Error(cperr.Error())
+				t.Fatal(cperr.Error())
 			}
 
 			if strings.HasSuffix(path, ".zip") {
 				_, srcFile := filepath.Split(path)
 				resp, err := vmm.containerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/")
-				log.Println(resp.ExitCode)
-				log.Println(resp.outBuffer.String())
-				log.Println(resp.errBuffer.String())
 				if err != nil {
-					t.Error(cperr.Error())
+					t.Fatal(cperr.Error())
 				}
 				if resp.ExitCode != 0 {
-					t.Error()
+					t.Fatal()
 				}
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		t.Error(err.Error())
+		t.Fatal(err.Error())
 	}
 
 	_, err = vmm.VMStart(vmName, "")
 	if err != nil {
-		t.Error(err.Error())
+		t.Fatal(err.Error())
 	}
 
 	// time.Sleep(30 * time.Second)
