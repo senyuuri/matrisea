@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -125,7 +126,20 @@ func TestCopyToContainer(t *testing.T) {
 //
 // TODO setup CI to pull latest images from ci.android.com
 func TestVMMIntegration(t *testing.T) {
-	_, err := vmm.StartVM(vmName, "")
+	err := filepath.Walk("/home/senyuuri/matrisea/data/images/android11-gsi-cf", func(path string, f os.FileInfo, err error) error {
+		if !f.IsDir() {
+			cperr := vmm.CopyToContainer(path, vmName, "/home/vsoc-01")
+			if cperr != nil {
+				t.Error(cperr.Error())
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err.Error())
+	}
+
+	_, err = vmm.StartVM(vmName, "")
 	if err != nil {
 		t.Error(err.Error())
 	}

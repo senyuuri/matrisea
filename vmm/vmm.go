@@ -382,31 +382,42 @@ func (v *VMM) getContainerIDByName(target string) (containerID string, err error
 // copy a single file into the container
 // if srcPath isn't a tar, it will be tar-ed in a temporary folder first
 func (v *VMM) CopyToContainer(srcPath string, containerName string, dstPath string) error {
+	log.Printf("Copy file into container %s:\n", containerName)
+	log.Printf("  src: %s\n", srcPath)
+	log.Printf("  dst: %s\n", dstPath)
+	start := time.Now()
+
 	if strings.HasSuffix(srcPath, ".tar") {
 		v.copyToContainer(srcPath, containerName, dstPath)
 	}
 
 	tmpdir, err := ioutil.TempDir("", "matrisea")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer os.RemoveAll(tmpdir)
 	_, srcFile := filepath.Split(srcPath)
 
 	cmdStr := fmt.Sprintf("tar -cvf %s/%s.tar %s", tmpdir, srcFile, srcPath)
-	log.Printf("Pack file before copy: %s\n", cmdStr)
-	cmd := exec.Command(cmdStr)
+
+	// TODO read stderr and always print to console
+	cmd := exec.Command("sh", "-c", cmdStr)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			if exitError.ExitCode() != 0 {
-				return err
-			}
-		}
+		log.Println(fmt.Sprint(err) + ": " + stderr.String())
+		return err
 	}
 
 	archive := tmpdir + "/" + srcFile + ".tar"
-	
+	if err = v.copyToContainer(archive, containerName, dstPath); err != nil {
+		return err
+	}
 
+	elapsed := time.Since(start)
+	log.Printf("  Copy completed in %s\n", elapsed)
 	return nil
 }
 
@@ -418,16 +429,9 @@ func (v *VMM) copyToContainer(srcPath string, containerName string, dstPath stri
 		return err
 	}
 
-	log.Printf("Load file into container %s:\n", containerID)
-	log.Printf("src: %s\n", srcPath)
-	log.Printf("dst: %s\n", dstPath)
-
 	archive, err := os.Open(srcPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			log.Fatalf("Failed to load a file into the container because the file does not exist: %s\n", srcPath)
-		}
-		fmt.Println(err)
+		return err
 	}
 	defer archive.Close()
 
@@ -440,7 +444,6 @@ func (v *VMM) copyToContainer(srcPath string, containerName string, dstPath stri
 
 // Adapted from moby's exec implementation
 // source: https://github.com/moby/moby/blob/master/integration/internal/container/exec.go
-
 // Exec executes a command inside a container, returning the result
 // containing stdout, stderr, and exit code. Note:
 //  - this is a synchronous operation;
