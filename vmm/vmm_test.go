@@ -33,10 +33,10 @@ func setup() {
 	}
 
 	// TODO: for local debugging only. to be removed
-	vmm.PruneVMs()
+	vmm.VMPrune()
 
 	// create a common VM for other tests
-	vmName, err = vmm.CreateVM("android11-gsi-cf")
+	vmName, err = vmm.VMCreate("android11-gsi-cf")
 	if err != nil {
 		fmt.Printf("Failed to CreateVM(). Reason: %s\n", err.Error())
 		os.Exit(1)
@@ -52,7 +52,7 @@ func setup() {
 }
 
 func shutdown() {
-	err := vmm.RemoveVM(vmName)
+	err := vmm.VMRemove(vmName)
 	if err != nil {
 		fmt.Printf("Failed to RemoveVM(). Reason: %s\n", err.Error())
 		os.Exit(1)
@@ -107,7 +107,7 @@ func TestCopyTarToContainer(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	err = vmm.CopyToContainer(dir+"/test.tar", vmName, "/home/vsoc-01")
+	err = vmm.containerCopyFile(dir+"/test.tar", vmName, "/home/vsoc-01")
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -135,7 +135,7 @@ func TestCopyNonTarToContainer(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	err = vmm.CopyToContainer(dir+"/testfile", vmName, "/home/vsoc-01")
+	err = vmm.containerCopyFile(dir+"/testfile", vmName, "/home/vsoc-01")
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -150,7 +150,7 @@ func TestCopyNonTarToContainer(t *testing.T) {
 }
 
 func TestContainerExec(t *testing.T) {
-	resp, err := vmm.ContainerExec(vmName, "uname -a")
+	resp, err := vmm.containerExec(vmName, "uname -a")
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -169,14 +169,14 @@ func TestContainerExec(t *testing.T) {
 func TestVMMIntegration(t *testing.T) {
 	err := filepath.Walk("/home/senyuuri/matrisea/data/images/android11-gsi-cf", func(path string, f os.FileInfo, err error) error {
 		if !f.IsDir() {
-			cperr := vmm.CopyToContainer(path, vmName, "/home/vsoc-01")
+			cperr := vmm.containerCopyFile(path, vmName, "/home/vsoc-01")
 			if cperr != nil {
 				t.Error(cperr.Error())
 			}
 
 			if strings.HasSuffix(path, ".zip") {
 				_, srcFile := filepath.Split(path)
-				resp, err := vmm.ContainerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/")
+				resp, err := vmm.containerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/")
 				log.Println(resp.ExitCode)
 				log.Println(resp.outBuffer.String())
 				log.Println(resp.errBuffer.String())
@@ -194,7 +194,7 @@ func TestVMMIntegration(t *testing.T) {
 		t.Error(err.Error())
 	}
 
-	_, err = vmm.StartVM(vmName, "")
+	_, err = vmm.VMStart(vmName, "")
 	if err != nil {
 		t.Error(err.Error())
 	}

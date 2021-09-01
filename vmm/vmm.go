@@ -30,27 +30,27 @@ import (
 //
 // More details: https://github.com/moby/moby/issues/38243
 var (
-	VMPrefix       = "matrisea-cvd-" // container name prefix
+	CFPrefix       = "matrisea-cvd-" // container name prefix
 	DefaultNetwork = "bridge"        // use docker's default bridge
 	CFImage        = "cuttlefish"    // cuttlefish image name
-	WorkDir        = "/home/vsoc-01" // workdir in container
-	ROImageDir     = "/root/images"  //read-only device image dir in container
+	HomeDir        = "/home/vsoc-01" // workdir in container
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
-// A cuttlefish VM is essentially a crosvm process running in a docker container.
-// Due to the one-one mapping, the word `VM` and `container` are sometimes used interchagably.
+// In Matrisea, a cuttlefish VM is essentially a crosvm process running in a docker container.
+// To avoid confusion between a `VM` and a `Container`, here by convention
+//   - The word `VM` is used exclusively in exported functions for VM lifecycle management
+//   - The word `container` is used else where for direct interaction with the underlying containers
 //
 // Caller of VMM is responsible to follow the call sequence when setting up a VM:
 //   1. Create a folder in $DATA/images/your-device-name and upload device images into it
-//   2. VMCreate()
-//   3. CopyToContainer() to load device images into WorkDir (in container)
+//   2. VMCreate(your-device-name)
+//   3. VMLoadFile() to copy images to the container's WorkDir
 //   4. VMStart()
 type VMM struct {
 	Client    *client.Client // Docker Engine client
 	DataDir   string
 	ImagesDir string
-	VmsDir    string
 }
 
 type VMMError struct {
@@ -89,11 +89,9 @@ func NewVMM(dataDir string) (*VMM, error) {
 
 	// populate initial data folder structure
 	imagesDir := path.Join(dataDir, "images")
-	vmsDir := path.Join(dataDir, "vms")
 	folders := []string{
 		dataDir,
 		imagesDir,
-		vmsDir,
 	}
 	for _, f := range folders {
 		if _, err := os.Stat(f); os.IsNotExist(err) {
@@ -110,33 +108,26 @@ func NewVMM(dataDir string) (*VMM, error) {
 		Client:    cli,
 		DataDir:   dataDir,
 		ImagesDir: imagesDir,
-		VmsDir:    vmsDir,
 	}, nil
 }
 
 // assume both the cuttlefish image and the default network exist on the host
 // a baseDevice represents a set of default images to be mounted to the container
-func (v *VMM) CreateVM(baseDevice string) (name string, err error) {
+func (v *VMM) VMCreate(baseDevice string) (name string, err error) {
 	ctx := context.Background()
-	vmName := VMPrefix + randSeq(6)
-
-	// dedicate a folder on the host for storing VM data
-	_, err = v.createVMFolder(vmName)
-	if err != nil {
-		return "", err
-	}
+	containerName := CFPrefix + getRandomSequence(6)
 
 	// create a new VM
 	containerConfig := &container.Config{
 		Image:    CFImage,
-		Hostname: vmName,
+		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
 			"cf_instance":     "0",
 			"n_cf_instances":  "1",
 			"vsock_guest_cid": "false",
 		},
 		Env: []string{
-			"HOME=/home/vsoc-01",
+			"HOME=" + HomeDir,
 		},
 		// TODO disable VNC port binding in production
 		// ExposedPorts: nat.PortSet{
@@ -158,12 +149,6 @@ func (v *VMM) CreateVM(baseDevice string) (name string, err error) {
 				Target:   "/sys/fs/cgroup",
 				ReadOnly: true,
 			},
-			{
-				Type:     mount.TypeBind,
-				Source:   imageDir,
-				Target:   ROImageDir,
-				ReadOnly: true,
-			},
 		},
 		// TODO disable VNC port binding in production
 		// PortBindings: nat.PortMap{
@@ -176,7 +161,7 @@ func (v *VMM) CreateVM(baseDevice string) (name string, err error) {
 		// },
 	}
 
-	// attach the VM to the default bridge
+	// attach the container to the default bridge
 	// the default bridge should have been created when the backend container started
 	networkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
@@ -184,27 +169,27 @@ func (v *VMM) CreateVM(baseDevice string) (name string, err error) {
 		},
 	}
 
-	resp, err := v.Client.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, vmName)
+	resp, err := v.Client.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, containerName)
 	if err != nil {
 		return "", err
 	}
 	if err := v.Client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return "", err
 	}
-	log.Printf("Created VM %s %s\n", vmName, resp.ID)
+	log.Printf("Created VM %s %s\n", containerName, resp.ID)
 
-	return vmName, nil
+	return containerName, nil
 }
 
 // run launch_cvd inside of a running container
-// notice StartVM() doesn't check for succeesful VM boot as it could take a long time
-func (v *VMM) StartVM(containerName string, options string) (execID string, err error) {
+// notice VMStart() doesn't check for succeesful VM boot as it could take a long time
+func (v *VMM) VMStart(containerName string, options string) (execID string, err error) {
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{WorkDir + "/bin/launch_cvd", "--nostart_webrtc", "--start_vnc_server"},
+		Cmd:          []string{HomeDir + "/bin/launch_cvd", "--nostart_webrtc", "--start_vnc_server"},
 		Tty:          true,
 	})
 	if err != nil {
@@ -250,7 +235,7 @@ func (v *VMM) StartVM(containerName string, options string) (execID string, err 
 }
 
 // kill launch_cvd process in the container
-func (v *VMM) StopVM(containerName string) error {
+func (v *VMM) VMStop(containerName string) error {
 	fmt.Printf("StopVM: %s\n", containerName)
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
@@ -258,7 +243,7 @@ func (v *VMM) StopVM(containerName string) error {
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{WorkDir + "/bin/stop_cvd"},
+		Cmd:          []string{HomeDir + "/bin/stop_cvd"},
 		Tty:          true,
 	})
 	if err != nil {
@@ -282,21 +267,11 @@ func (v *VMM) StopVM(containerName string) error {
 	return &VMMError{msg: "failed to stop the VM"}
 }
 
-func (v *VMM) listVM(ctx context.Context) ([]types.Container, error) {
-	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
-	if err != nil {
-		return nil, err
-	}
-	vmList := []types.Container{}
-	for _, container := range containers {
-		if isCuttlefishContainer(container) {
-			vmList = append(vmList, container)
-		}
-	}
-	return vmList, nil
+func (v *VMM) VMLoadFile(containerName string, srcPath string) error {
+	return v.containerCopyFile(srcPath, containerName, HomeDir)
 }
 
-func (v *VMM) RemoveVM(containerName string) error {
+func (v *VMM) VMRemove(containerName string) error {
 	containerID, err := v.getContainerIDByName(containerName)
 	if err != nil {
 		return err
@@ -310,25 +285,23 @@ func (v *VMM) RemoveVM(containerName string) error {
 		return err
 	}
 
-	if err = v.deleteVMFolder(containerName); err != nil {
-		return err
-	}
 	return nil
 }
 
 // remove all managed VMs
-func (v *VMM) PruneVMs() {
+func (v *VMM) VMPrune() {
 	log.Println("PruneVMs called")
-	vmList, _ := v.listVM(context.Background())
-	for _, vm := range vmList {
-		err := v.RemoveVM(vm.Names[0][1:])
+	cfList, _ := v.getCuttlefishContainers(context.Background())
+	for _, c := range cfList {
+		err := v.VMRemove(c.Names[0][1:])
 		if err != nil {
 			panic(err)
 		}
-		log.Printf("Removed VM %s\n", vm.ID[:10])
+		log.Printf("Removed VM %s\n", c.ID[:10])
 	}
 }
 
+// returns a bi-directional stream for the frontend to interact with a container's shell
 func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
 	log.Printf("Request to attach to container terminal %s\n", containerName)
 	ctx := context.Background()
@@ -363,32 +336,46 @@ func (v *VMM) getContainerNameByID(containerID string) (name string, err error) 
 }
 
 func (v *VMM) getContainerIDByName(target string) (containerID string, err error) {
-	vmList, err := v.listVM(context.Background())
+	cfList, err := v.getCuttlefishContainers(context.Background())
 	if err != nil {
 		return "", err
 	}
-	for _, vm := range vmList {
-		for _, name := range vm.Names {
+	for _, c := range cfList {
+		for _, name := range c.Names {
 			// docker container names all start with "/"
-			prefix := "/" + VMPrefix
+			prefix := "/" + CFPrefix
 			if strings.HasPrefix(name, prefix) && strings.Contains(name, target) {
-				return vm.ID, nil
+				return c.ID, nil
 			}
 		}
 	}
 	return "", nil
 }
 
+func (v *VMM) getCuttlefishContainers(ctx context.Context) ([]types.Container, error) {
+	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	cflist := []types.Container{}
+	for _, c := range containers {
+		if v.isCuttlefishContainer(c) {
+			cflist = append(cflist, c)
+		}
+	}
+	return cflist, nil
+}
+
 // copy a single file into the container
 // if srcPath isn't a tar, it will be tar-ed in a temporary folder first
-func (v *VMM) CopyToContainer(srcPath string, containerName string, dstPath string) error {
+func (v *VMM) containerCopyFile(srcPath string, containerName string, dstPath string) error {
 	log.Printf("Copy file into container %s:\n", containerName)
 	log.Printf("  src: %s\n", srcPath)
 	log.Printf("  dst: %s\n", dstPath)
 	start := time.Now()
 
 	if strings.HasSuffix(srcPath, ".tar") {
-		v.copyToContainer(srcPath, containerName, dstPath)
+		v.containerCopyTarFile(srcPath, containerName, dstPath)
 	}
 
 	tmpdir, err := ioutil.TempDir("", "matrisea")
@@ -412,7 +399,7 @@ func (v *VMM) CopyToContainer(srcPath string, containerName string, dstPath stri
 	}
 
 	archive := tmpdir + "/" + srcFile + ".tar"
-	if err = v.copyToContainer(archive, containerName, dstPath); err != nil {
+	if err = v.containerCopyTarFile(archive, containerName, dstPath); err != nil {
 		return err
 	}
 
@@ -423,7 +410,7 @@ func (v *VMM) CopyToContainer(srcPath string, containerName string, dstPath stri
 
 // wrapper function on docker's CopyToContainer API where the srcPath must be a tar file
 // The API will fail silently if srcPath isn't a tar
-func (v *VMM) copyToContainer(srcPath string, containerName string, dstPath string) error {
+func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath string) error {
 	containerID, err := v.getContainerIDByName(containerName)
 	if err != nil {
 		return err
@@ -448,7 +435,7 @@ func (v *VMM) copyToContainer(srcPath string, containerName string, dstPath stri
 // containing stdout, stderr, and exit code. Note:
 //  - this is a synchronous operation;
 //  - cmd stdin is closed.
-func (v *VMM) ContainerExec(containerName string, cmd string) (ExecResult, error) {
+func (v *VMM) containerExec(containerName string, cmd string) (ExecResult, error) {
 	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
 	ctx := context.Background()
 	// prepare exec
@@ -501,82 +488,27 @@ func (v *VMM) ContainerExec(containerName string, cmd string) (ExecResult, error
 	return ExecResult{ExitCode: iresp.ExitCode, outBuffer: &outBuf, errBuffer: &errBuf}, nil
 }
 
-// create a VM specific data folder and initialise 3 subfolders for overlayFS,
-// namely `upper`, `work`, and `merge`
-func (v *VMM) createVMFolder(containerName string) (string, error) {
-	parent := path.Join(v.VmsDir, containerName)
-
-	err := os.Mkdir(parent, 0755)
-	if err != nil {
-		log.Println(err)
-		return "", err
-	}
-	log.Printf("Created data folder %s for container %s\n", parent, containerName)
-	return parent, nil
-}
-
-func (v *VMM) deleteVMFolder(containerName string) error {
-	path := path.Join(v.VmsDir, containerName)
-	err := os.RemoveAll(path)
-	if err != nil {
-		return err
-	}
-	log.Printf("Deleted data folder %s for container %s\n", path, containerName)
-	return nil
-}
-
-// copy aosp and cvd image into the container's image folder
-// expect aosp image to be .zip and cvd image to be .tar, as per android CI's default packaing
-func (v *VMM) LoadImages(containerName string, aosp_zip string, cvd_tar string) error {
-	if _, err := os.Stat(aosp_zip); os.IsNotExist(err) {
-		return err
-	}
-	if _, err := os.Stat(cvd_tar); os.IsNotExist(err) {
-		return err
-	}
-	imageDir := path.Join(v.ImagesDir, containerName)
-	cmd := exec.Command("unzip", aosp_zip, "-d", imageDir)
-	if err := cmd.Start(); err != nil {
-		panic(err)
-	}
-	if err := cmd.Wait(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			log.Fatalf("Unzip failed with error code %d", exitError.ExitCode())
-		}
-	}
-	cmd = exec.Command("tar", "-C", imageDir, "-xzf", cvd_tar)
-	if err := cmd.Start(); err != nil {
-		panic(err)
-	}
-	if err := cmd.Wait(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			log.Fatalf("Untar failed with error code %d", exitError.ExitCode())
-		}
-	}
-	return nil
-}
-
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-func randSeq(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
-}
-
 // get the VMPrefix name of a cuttlefish container
 // if it is not a cuttlefish container, return ""
-func isCuttlefishContainer(container types.Container) bool {
+func (v *VMM) isCuttlefishContainer(container types.Container) bool {
 	for _, name := range container.Names {
 		// docker container names all start with "/"
-		prefix := "/" + VMPrefix
+		prefix := "/" + CFPrefix
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
 	}
 	return false
+}
+
+var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func getRandomSequence(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
 }
 
 func init() {
