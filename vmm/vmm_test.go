@@ -149,8 +149,24 @@ func TestCopyNonTarToContainer(t *testing.T) {
 	}
 }
 
+func TestStartVNCProxy(t *testing.T) {
+	if err := vmm.startVNCProxy(vmName); err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	cid, err := vmm.getContainerIDByName(vmName)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+	cmd := fmt.Sprintf("docker exec %s ps aux | grep -q websockify", cid)
+	err = exec.Command("bash", "-c", cmd).Run()
+	if err != nil {
+		t.Error(err.Error())
+	}
+}
+
 func TestContainerExec(t *testing.T) {
-	resp, err := vmm.containerExec(vmName, "uname -a")
+	resp, err := vmm.containerExec(vmName, "uname -a", "vsoc-01")
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -176,7 +192,7 @@ func TestVMMIntegration(t *testing.T) {
 
 			if strings.HasSuffix(path, ".zip") {
 				_, srcFile := filepath.Split(path)
-				resp, err := vmm.containerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/")
+				resp, err := vmm.containerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/", "vsoc-01")
 				if err != nil {
 					t.Fatal(cperr.Error())
 				}

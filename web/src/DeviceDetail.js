@@ -34,7 +34,7 @@ function DeviceDetail(){
         <MyPageHeader/>
         <Row gutter={16}  key="3" id="detail-flex-content">
           <Col span={6}>
-            <VNCDisplay url="ws://192.168.3.100:6080/"/>
+            <VNCDisplay url="ws://192.168.3.112:10000"/>
             {/* <Spin spinning={true} tip="Waiting for device...">
               </Spin> */}
           </Col>

@@ -21,7 +21,9 @@ function VNCDisplay(props){
 
     useEffect(() => {
         // Creating a new RFB object will start a new connection
-        rfb = new RFB(document.getElementById('vnc-canvas'), props.url);
+        rfb = new RFB(document.getElementById('vnc-canvas'), props.url, {
+            wsProtocols: ['binary', 'base64'],
+        });
 
         // Add listeners to important events from the RFB module
         rfb.addEventListener("connect",  connectedToServer);

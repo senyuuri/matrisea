@@ -186,6 +186,13 @@ func (v *VMM) VMCreate(baseDevice string) (name string, err error) {
 // notice VMStart() doesn't check for succeesful VM boot as it could take a long time
 func (v *VMM) VMStart(containerName string, options string) (execID string, err error) {
 	start := time.Now()
+	// start auxillary deamons
+	err = v.startVNCProxy(containerName)
+	if err != nil {
+		return "", err
+	}
+
+	// start cuttlefish device
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		User:         "vsoc-01",
@@ -198,7 +205,7 @@ func (v *VMM) VMStart(containerName string, options string) (execID string, err 
 		return "", err
 	}
 
-	// cmd only starts after ContainerExecAttach
+	// cmd only get executed after ContainerExecAttach
 	aresp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
 	if err != nil {
 		return "", err
@@ -290,7 +297,7 @@ func (v *VMM) VMRemove(containerName string) error {
 // remove all managed VMs
 func (v *VMM) VMPrune() {
 	log.Println("PruneVMs called")
-	cfList, _ := v.getCuttlefishContainers(context.Background())
+	cfList, _ := v.VMList()
 	for _, c := range cfList {
 		err := v.VMRemove(c.Names[0][1:])
 		if err != nil {
@@ -298,6 +305,21 @@ func (v *VMM) VMPrune() {
 		}
 		log.Printf("Removed VM %s\n", c.ID[:10])
 	}
+}
+
+func (v *VMM) VMList() ([]types.Container, error) {
+	ctx := context.Background()
+	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	cflist := []types.Container{}
+	for _, c := range containers {
+		if v.isCuttlefishContainer(c) {
+			cflist = append(cflist, c)
+		}
+	}
+	return cflist, nil
 }
 
 // returns a bi-directional stream for the frontend to interact with a container's shell
@@ -322,6 +344,34 @@ func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse,
 	return hijackedResp, nil
 }
 
+// Install websockify and listen to websocket-based VNC connection on the container port 6080
+//
+// When a cuttlefish VM is created with --start-vnc-server flag, /home/vsoc-01/bin/vnc_server starts to listen
+// on 6444 of the `lo` interface. This vnc_server only supports RFB 3.x which isn't compatible with the websocket-based
+// protocol of novnc.js. To allow the frontend to access the VNC stream inside of the container, we need to both
+// translate RFB to websocket and to listen to a port on the container's `eth0` interface. websockify can do both.
+//
+// Notice that websockify only listen on eth0 inside of the container which isn't reachable from outside of the host.
+// The caller of this function is responsible to setup a reverse proxy to enable external VNC access.
+func (v *VMM) startVNCProxy(containerName string) error {
+	resp, err := v.containerExec(containerName, "apt -y install websockify", "root")
+	if err != nil {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		return &VMMError{"Failed to install websockify"}
+	}
+	resp, err = v.containerExec(containerName, "websockify -D 6080 127.0.0.1:6444", "vsoc-01")
+	if err != nil {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		return &VMMError{"Failed to start websockify"}
+	}
+	log.Println("websockify daemon started")
+	return nil
+}
+
 func (v *VMM) installAdeb() {
 	// call
 }
@@ -335,7 +385,7 @@ func (v *VMM) getContainerNameByID(containerID string) (name string, err error) 
 }
 
 func (v *VMM) getContainerIDByName(target string) (containerID string, err error) {
-	cfList, err := v.getCuttlefishContainers(context.Background())
+	cfList, err := v.VMList()
 	if err != nil {
 		return "", err
 	}
@@ -349,20 +399,6 @@ func (v *VMM) getContainerIDByName(target string) (containerID string, err error
 		}
 	}
 	return "", nil
-}
-
-func (v *VMM) getCuttlefishContainers(ctx context.Context) ([]types.Container, error) {
-	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
-	if err != nil {
-		return nil, err
-	}
-	cflist := []types.Container{}
-	for _, c := range containers {
-		if v.isCuttlefishContainer(c) {
-			cflist = append(cflist, c)
-		}
-	}
-	return cflist, nil
 }
 
 // copy a single file into the container
@@ -434,13 +470,13 @@ func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath
 // containing stdout, stderr, and exit code. Note:
 //  - this is a synchronous operation;
 //  - cmd stdin is closed.
-func (v *VMM) containerExec(containerName string, cmd string) (ExecResult, error) {
+func (v *VMM) containerExec(containerName string, cmd string, user string) (ExecResult, error) {
 	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
 	start := time.Now()
 	ctx := context.Background()
 	// prepare exec
 	execConfig := types.ExecConfig{
-		User:         "vsoc-01",
+		User:         user,
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          []string{"/bin/sh", "-c", cmd},

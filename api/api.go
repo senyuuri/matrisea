@@ -4,6 +4,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -17,10 +18,11 @@ var (
 )
 
 func main() {
-	v = vmm.NewVMM(
-		getenv("IMAGE_DIR", "/data/workspace/matrisea/images/"),
-		getenv("UPLOAD_DIR", "/data/workspace/matrisea/upload/"),
-	)
+	var err error
+	v, err = vmm.NewVMM(getenv("IMAGE_DIR", "/data/workspace/matrisea/images/"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	router = gin.Default()
 	api := router.Group("/api")
 
@@ -38,7 +40,7 @@ func main() {
 
 // TODO get crosvm process status in running containers
 func listVM(c *gin.Context) {
-	vmList, err := v.ListVM()
+	vmList, err := v.VMList()
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -47,26 +49,24 @@ func listVM(c *gin.Context) {
 }
 
 func createVM(c *gin.Context) {
-	aosp_file := c.PostForm("aosp_file")
-	cvd_file := c.PostForm("cvd_file")
 	// create and run a container
-	name, err := v.CreateVM()
+	name, err := v.VMCreate("android11-gsi-cf")
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	// unzip/untar selected images to the container's image folder on the host
-	if err := v.LoadImages(name, aosp_file, cvd_file); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
+	// if err := v.LoadImages(name, aosp_file, cvd_file); err != nil {
+	// 	c.JSON(500, gin.H{"error": err.Error()})
+	// 	return
+	// }
 	c.JSON(200, gin.H{"container_name": name})
 }
 
 func startVM(c *gin.Context) {
 	name := c.Param("name")
 	// TODO add default options
-	if err := v.StartVM(name, ""); err != nil {
+	if _, err := v.VMStart(name, ""); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -75,7 +75,7 @@ func startVM(c *gin.Context) {
 
 func stopVM(c *gin.Context) {
 	name := c.Param("name")
-	if err := v.StopVM(name); err != nil {
+	if err := v.VMStop(name); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -84,7 +84,7 @@ func stopVM(c *gin.Context) {
 
 func removeVM(c *gin.Context) {
 	name := c.Param("name")
-	if err := v.RemoveVM(name); err != nil {
+	if err := v.VMRemove(name); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -155,6 +155,27 @@ func wsReaderCopy(reader *websocket.Conn, writer io.Writer) {
 		if messageType == websocket.TextMessage {
 			writer.Write(p)
 		}
+	}
+}
+
+// TODO
+// - get VM name from the request
+// - get VM internal IP
+// - assign a port from range 10000-10100
+// - start a wsproxy
+// - set a timeout timer and shutdown the port if inactive for x min
+// - authentication?
+//
+// https://stackoverflow.com/questions/39320025/how-to-stop-http-listenandserve/42533360
+func startVNCTunnel() {
+	u, err := url.Parse("ws://172.17.0.2:6080")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = http.ListenAndServe(":10000", NewProxy(u))
+	if err != nil {
+		log.Fatalln(err)
 	}
 }
 
