@@ -11,8 +11,8 @@ const columns = [
       dataIndex: 'name',
     },
     {
-      title: 'AOSP Image',
-      dataIndex: "aosp_version",
+      title: 'Device',
+      dataIndex: "device",
     },
     {
       title: 'Created At',

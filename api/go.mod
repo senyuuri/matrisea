@@ -5,6 +5,8 @@ go 1.16
 replace sea.com/matrisea/vmm => ../vmm
 
 require (
+	github.com/docker/docker v20.10.8+incompatible // indirect
+	github.com/gin-contrib/cors v1.3.1 // indirect
 	github.com/gin-gonic/gin v1.7.2 // indirect
 	github.com/go-playground/validator/v10 v10.6.1 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect

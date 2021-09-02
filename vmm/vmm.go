@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,26 @@ type VMM struct {
 type VMMError struct {
 	msg string // description of error
 }
+
+type VMItem struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Created string   `json:"created"` // unix timestamp
+	Device  string   `json:"device"`
+	IP      string   `json:"ip"`
+	Status  VMStatus `json:"status"`
+	Tags    []string `json:"tags"`
+}
+
+type VMs []VMItem
+
+type VMStatus int
+
+const (
+	VMContainerReady   VMStatus = iota // container is up but crosvm not running
+	VMRunning          VMStatus = iota // crosvm is running
+	VMContainerStopped VMStatus = iota // container is stopped but this shouldn't happen
+)
 
 // ExecResult represents a result returned from Exec()
 type ExecResult struct {
@@ -123,9 +144,10 @@ func (v *VMM) VMCreate(baseDevice string) (name string, err error) {
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":     "0",
-			"n_cf_instances":  "1",
-			"vsock_guest_cid": "false",
+			"cf_instance":              "0",
+			"n_cf_instances":           "1",
+			"vsock_guest_cid":          "false",
+			"matrisea_device_template": baseDevice,
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -297,7 +319,7 @@ func (v *VMM) VMRemove(containerName string) error {
 // remove all managed VMs
 func (v *VMM) VMPrune() {
 	log.Println("PruneVMs called")
-	cfList, _ := v.VMList()
+	cfList, _ := v.listCuttlefishContainers()
 	for _, c := range cfList {
 		err := v.VMRemove(c.Names[0][1:])
 		if err != nil {
@@ -307,19 +329,31 @@ func (v *VMM) VMPrune() {
 	}
 }
 
-func (v *VMM) VMList() ([]types.Container, error) {
-	ctx := context.Background()
-	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
+func (v *VMM) VMList() (VMs, error) {
+	cfList, err := v.listCuttlefishContainers()
 	if err != nil {
 		return nil, err
 	}
-	cflist := []types.Container{}
-	for _, c := range containers {
-		if v.isCuttlefishContainer(c) {
-			cflist = append(cflist, c)
+
+	resp := VMs{}
+	for _, c := range cfList {
+		containerName := c.Names[0][1:]
+		status, err := v.getVMStatus(containerName)
+		if err != nil {
+			return nil, err
 		}
+
+		resp = append(resp, VMItem{
+			ID:      c.ID,
+			Name:    containerName,
+			Created: strconv.FormatInt(c.Created, 10),
+			Device:  c.Labels["matrisea_device_template"],
+			IP:      c.NetworkSettings.Networks[DefaultNetwork].IPAddress,
+			Status:  status,
+			Tags:    []string{},
+		})
 	}
-	return cflist, nil
+	return resp, nil
 }
 
 // returns a bi-directional stream for the frontend to interact with a container's shell
@@ -354,7 +388,7 @@ func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse,
 // Notice that websockify only listen on eth0 inside of the container which isn't reachable from outside of the host.
 // The caller of this function is responsible to setup a reverse proxy to enable external VNC access.
 func (v *VMM) startVNCProxy(containerName string) error {
-	resp, err := v.containerExec(containerName, "apt -y install websockify", "root")
+	resp, err := v.containerExec(containerName, "apt install -y -qq websockify", "root")
 	if err != nil {
 		return err
 	}
@@ -385,7 +419,7 @@ func (v *VMM) getContainerNameByID(containerID string) (name string, err error) 
 }
 
 func (v *VMM) getContainerIDByName(target string) (containerID string, err error) {
-	cfList, err := v.VMList()
+	cfList, err := v.listCuttlefishContainers()
 	if err != nil {
 		return "", err
 	}
@@ -527,6 +561,46 @@ func (v *VMM) containerExec(containerName string, cmd string, user string) (Exec
 	log.Printf("  stderr: %s\n", errBuf.String())
 	log.Printf("  ContainerExec completed in %s\n", elapsed)
 	return ExecResult{ExitCode: iresp.ExitCode, outBuffer: &outBuf, errBuffer: &errBuf}, nil
+}
+
+func (v *VMM) listCuttlefishContainers() ([]types.Container, error) {
+	ctx := context.Background()
+	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	cflist := []types.Container{}
+	for _, c := range containers {
+		if v.isCuttlefishContainer(c) {
+			cflist = append(cflist, c)
+		}
+	}
+	return cflist, nil
+}
+
+func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
+	containerID, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return -1, err
+	}
+	containerJSON, err := v.Client.ContainerInspect(context.Background(), containerID)
+	if err != nil {
+		return -1, err
+	}
+	// String representation of the container state. Can be one of "created", "running", "paused", "restarting", "removing", "exited", or "dead"
+	if containerJSON.State.Status == "running" {
+		// use grep "[x]xxx" technique to prevent grep itself from showing up in the ps result
+		resp, err := v.containerExec(containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
+		if err != nil {
+			return -1, err
+		}
+		if strings.Contains(resp.outBuffer.String(), "launch_cvd") {
+			return VMRunning, nil
+		}
+		return VMContainerReady, nil
+	}
+	log.Printf("Unexpected status %s of container %s\n", containerJSON.State.Status, containerName)
+	return VMContainerStopped, nil
 }
 
 // get the VMPrefix name of a cuttlefish container

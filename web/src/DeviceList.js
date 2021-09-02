@@ -1,39 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Breadcrumb, Row, Button, } from 'antd';
 import QueueAnim from 'rc-queue-anim';
+import axios from "axios"
 
 import NewVMForm from './components/NewVMForm';
 import DeviceTable from './components/DeviceTable';
 
-const data = [
-  {
-    key: '1',
-    id: '15db08f938a4',
-    name: 'matrisea-cvd-JTcFAR',
-    device_type: 'cuttlefish-kvm',
-    aosp_version: 'aosp_cf_x86_64_phone-img-7530437',
-    created: '2020-01-01 00:00:00',
-    status: 'Running',
-    tags: ["Android 11",]
-  },
-  {
-    key: '2',
-    id: '15db08f938a4',
-    name: 'matrisea-cvd-JTcFAR',
-    device_type: 'cuttlefish-kvm',
-    aosp_version: 'aosp_cf_x86_64_phone-img-7530437',
-    created: '2020-01-01 00:00:00',
-    status: 'Running',
-    tags: ["Android 11", "Custom Kernel"]
-  },
-];
-
 function DeviceList(){
   const [formVisible, setFormVisible] = useState(false);
-  
+  const [deviceList, setDeviceList] = useState([]);
+
   function handleFormClose() {
     setFormVisible(false);
   }
+
+  useEffect(() => {
+    axios.get("http://localhost:8080/api/v1/vms/")
+      .then((response) => {
+        response.data.forEach((device) => {
+          device['id'] = device['id'].substring(0,10);
+          device['key'] = device['id'];
+          let date = new Date(device['created']*1000);
+          device['created'] = date.toLocaleString('en-US', { timeZone: 'Asia/Singapore' });
+        })
+
+        setDeviceList(response.data)
+      })
+      .catch((error) => console.log(error))
+  }, []);
 
   return (
     <div key="device-list">
@@ -46,7 +40,7 @@ function DeviceList(){
               </Breadcrumb>
               <Button onClick={() => {setFormVisible(true);}}>New Virtual Device</Button>
             </Row>
-            <DeviceTable data={data} key="2"/>
+            <DeviceTable data={deviceList} key="2"/>
           </QueueAnim>
         </div>
         <NewVMForm visible={formVisible} onChange={handleFormClose}/>

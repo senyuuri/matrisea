@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"sea.com/matrisea/vmm"
@@ -19,13 +20,17 @@ var (
 
 func main() {
 	var err error
-	v, err = vmm.NewVMM(getenv("IMAGE_DIR", "/data/workspace/matrisea/images/"))
+	v, err = vmm.NewVMM(getenv("IMAGE_DIR", "/home/senyuuri/matrisea/data/images/"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	router = gin.Default()
-	api := router.Group("/api")
+	router.Use(cors.New(cors.Config{
+		// TODO make this configurable
+		AllowOrigins: []string{"http://localhost:3000"},
+	}))
 
+	api := router.Group("/api")
 	v1 := api.Group("/v1")
 	{
 		v1.GET("/vms/", listVM)
@@ -45,6 +50,7 @@ func listVM(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
+
 	c.JSON(200, vmList)
 }
 

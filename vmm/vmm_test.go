@@ -183,26 +183,38 @@ func TestContainerExec(t *testing.T) {
 //
 // TODO setup CI to pull latest images from ci.android.com
 func TestVMMIntegration(t *testing.T) {
-	err := filepath.Walk("/home/senyuuri/matrisea/data/images/android11-gsi-cf", func(path string, f os.FileInfo, err error) error {
-		if !f.IsDir() {
-			cperr := vmm.containerCopyFile(path, vmName, "/home/vsoc-01")
-			if cperr != nil {
-				t.Fatal(cperr.Error())
-			}
+	status, err := vmm.getVMStatus(vmName)
+	if err != nil {
+		t.Error(err.Error())
+	}
+	if status != VMContainerReady {
+		t.Fatalf("Incorrect VM status. Status: %d\n", status)
+	}
 
-			if strings.HasSuffix(path, ".zip") {
-				_, srcFile := filepath.Split(path)
-				resp, err := vmm.containerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/", "vsoc-01")
-				if err != nil {
+	err = filepath.Walk(
+		"/home/senyuuri/matrisea/data/images/android11-gsi-cf",
+		func(path string, f os.FileInfo, err error) error {
+			if !f.IsDir() {
+				cperr := vmm.containerCopyFile(path, vmName, "/home/vsoc-01")
+				if cperr != nil {
 					t.Fatal(cperr.Error())
 				}
-				if resp.ExitCode != 0 {
-					t.Fatal()
+
+				if strings.HasSuffix(path, ".zip") {
+					_, srcFile := filepath.Split(path)
+					resp, err := vmm.containerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/", "vsoc-01")
+					if err != nil {
+						t.Fatal(cperr.Error())
+					}
+					if resp.ExitCode != 0 {
+						t.Fatal()
+					}
 				}
 			}
-		}
-		return nil
-	})
+			return nil
+		},
+	)
+
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -210,6 +222,14 @@ func TestVMMIntegration(t *testing.T) {
 	_, err = vmm.VMStart(vmName, "")
 	if err != nil {
 		t.Fatal(err.Error())
+	}
+
+	status, err = vmm.getVMStatus(vmName)
+	if err != nil {
+		t.Error(err.Error())
+	}
+	if status != VMRunning {
+		t.Fatalf("Incorrect VM status. Status: %d\n", status)
 	}
 
 	// time.Sleep(30 * time.Second)
