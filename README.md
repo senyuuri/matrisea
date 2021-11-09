@@ -3,7 +3,7 @@
 ![license-mit](https://img.shields.io/badge/license-MIT-green)
 ![release](https://img.shields.io/badge/release-pre--alpha-lightgrey)
 
-Matrisea (/ˈmeɪtrɪksiː/) is an open-sourced, cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
+Matrisea (/ˈmeɪtrɪksiː/) is a cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
 
 ![demo](./docs/demo.gif)
 
@@ -16,8 +16,6 @@ Matrisea (/ˈmeɪtrɪksiː/) is an open-sourced, cloud-based Android reversing p
     - Provide a simple workflow to make your own base device e.g. upload custom kernels/AOSP images or install additional tools
     - Provide a tool to download pre-built artifacts from Android CI
 - Provide a web UI to manage the device fleet and to access devices' VNC stream and interactive shell
-
-[[toc]]
 
 ## Quick Start
 
