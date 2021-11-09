@@ -45,14 +45,16 @@ var (
 //   - The word `container` is used else where for direct interaction with the underlying containers
 //
 // Caller of VMM is responsible to follow the call sequence when setting up a VM:
-//   1. Create a folder in $DATA/images/your-device-name and upload device images into it
+//   1. Create a folder in $DATA/devices/your-device-name and upload device images
 //   2. VMCreate(your-device-name)
 //   3. VMLoadFile() to copy images to the container's WorkDir
 //   4. VMStart()
 type VMM struct {
-	Client    *client.Client // Docker Engine client
-	DataDir   string
-	ImagesDir string
+	Client     *client.Client // Docker Engine client
+	DataDir    string
+	DevicesDir string
+	DBDir      string
+	UploadDir  string
 }
 
 type VMMError struct {
@@ -110,10 +112,13 @@ func NewVMM(dataDir string) (*VMM, error) {
 	}
 
 	// populate initial data folder structure
-	imagesDir := path.Join(dataDir, "images")
+	devicesDir := path.Join(dataDir, "devices")
+	dbDir := path.Join(dataDir, "db")
+	uploadDir := path.Join(dataDir, "upload")
+
 	folders := []string{
 		dataDir,
-		imagesDir,
+		devicesDir,
 	}
 	for _, f := range folders {
 		if _, err := os.Stat(f); os.IsNotExist(err) {
@@ -127,15 +132,17 @@ func NewVMM(dataDir string) (*VMM, error) {
 	log.Printf("DATA_DIR=%s\n", dataDir)
 
 	return &VMM{
-		Client:    cli,
-		DataDir:   dataDir,
-		ImagesDir: imagesDir,
+		Client:     cli,
+		DataDir:    dataDir,
+		DevicesDir: devicesDir,
+		DBDir:      dbDir,
+		UploadDir:  uploadDir,
 	}, nil
 }
 
-// assume both the cuttlefish image and the default network exist on the host
-// a baseDevice represents a set of default images to be mounted to the container
-func (v *VMM) VMCreate(baseDevice string) (name string, err error) {
+// the caller is responsible for setting up device folder
+// assume docker's default network exist on the host
+func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 	ctx := context.Background()
 	containerName := CFPrefix + getRandomSequence(6)
 
@@ -144,10 +151,10 @@ func (v *VMM) VMCreate(baseDevice string) (name string, err error) {
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":              "0",
-			"n_cf_instances":           "1",
-			"vsock_guest_cid":          "false",
-			"matrisea_device_template": baseDevice,
+			"cf_instance":     "0",
+			"n_cf_instances":  "1",
+			"vsock_guest_cid": "false",
+			"matrisea_device": deviceName,
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -158,7 +165,7 @@ func (v *VMM) VMCreate(baseDevice string) (name string, err error) {
 		// },
 	}
 
-	imageDir := path.Join(v.ImagesDir, baseDevice)
+	imageDir := path.Join(v.DevicesDir, deviceName)
 	if _, err := os.Stat(imageDir); os.IsNotExist(err) {
 		return "", err
 	}

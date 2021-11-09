@@ -20,27 +20,36 @@ var (
 
 func main() {
 	var err error
-	v, err = vmm.NewVMM(getenv("IMAGE_DIR", "/home/senyuuri/matrisea/data/images/"))
+	v, err = vmm.NewVMM(getenv("DATA_DIR", "/data"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	router = gin.Default()
-	router.Use(cors.New(cors.Config{
-		// TODO make this configurable
-		AllowOrigins: []string{"http://localhost:3000"},
-	}))
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"http://localhost:3000"}
+	router.Use(cors.New(config))
 
 	api := router.Group("/api")
 	v1 := api.Group("/v1")
 	{
-		v1.GET("/vms/", listVM)
-		v1.POST("/vms/", createVM)
+		v1.GET("/vms", listVM)
+		v1.POST("/vms", createVM)
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
-		v1.DELETE("/vms/:name/", removeVM)
+		v1.DELETE("/vms/:name", removeVM)
 		v1.GET("/vms/:name/ws", terminalHandler)
 	}
 	router.Run()
+}
+
+type CreateDeviceForm struct {
+	DeviceName  string `json:"name" binding:"required"`
+	DeviceType  string `json:"type" binding:"required"`
+	CPU         int    `json:"cpu" binding:"required"`
+	RAM         int    `json:"ram" binding:"required"`
+	SystemImage string `json:"system-image"`
+	CVDImage    string `json:"cvd-image"`
+	KernelImage string `json:"kernel-image"`
 }
 
 // TODO get crosvm process status in running containers
@@ -55,18 +64,31 @@ func listVM(c *gin.Context) {
 }
 
 func createVM(c *gin.Context) {
-	// create and run a container
-	name, err := v.VMCreate("android11-gsi-cf")
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	var json CreateDeviceForm
+	if err := c.ShouldBindJSON(&json); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// unzip/untar selected images to the container's image folder on the host
-	// if err := v.LoadImages(name, aosp_file, cvd_file); err != nil {
+	log.Printf("createVM: %s\n", json)
+
+	// check if device alr exist
+
+	// create folder
+
+	c.JSON(200, gin.H{"container_name": "aaabbb"})
+	// create and run a container
+	// name, err := v.VMCreate("android11-gsi-cf")
+
+	// if err != nil {
 	// 	c.JSON(500, gin.H{"error": err.Error()})
 	// 	return
 	// }
-	c.JSON(200, gin.H{"container_name": name})
+	// // unzip/untar selected images to the container's image folder on the host
+	// // if err := v.LoadImages(name, aosp_file, cvd_file); err != nil {
+	// // 	c.JSON(500, gin.H{"error": err.Error()})
+	// // 	return
+	// // }
+	// c.JSON(200, gin.H{"container_name": name})
 }
 
 func startVM(c *gin.Context) {

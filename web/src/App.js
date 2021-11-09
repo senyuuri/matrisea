@@ -1,7 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Route, Switch, useLocation } from 'react-router-dom'
 import { Layout } from 'antd';
-import QueueAnim from 'rc-queue-anim';
 
 import DeviceList from "./DeviceList"
 import DeviceDetail from './DeviceDetail';

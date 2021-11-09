@@ -23,6 +23,8 @@ Matrisea (/ˈmeɪtrɪksiː/) is a cloud-based Android reversing platform that pr
 
 Matrisea is a web service that runs on both bare metal machines and VMs. However if you intend to use a VM through VirtualBox/VMware Workstation/ESXi, make sure to expose hardware-assisted virtualization to the guest OS.
 
+
+
 Matrisea only supports Ubuntu at the moment.
 
 Other pre-requisites:
@@ -31,6 +33,9 @@ Other pre-requisites:
 
 
 **Installation**
+
+> *For VMware users: Matrisea isn't compatible with vmware-tools due to vsock conflicts. The setup scripts will ask your permission to uninstall it. This won't affect the normal function of the VM.*
+
 ```
 git clone https://github.com/senyuuri/matrisea
 cd matrisea; ./setup.sh
@@ -65,7 +70,7 @@ docker-compose up -d
 ```
 sudo apt install -y npm
 sudo npm install -g yarn
-cd frontend && yarn install
+cd web && yarn install
 
 yarn start
 ```

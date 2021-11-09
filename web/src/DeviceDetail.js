@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Image, Spin } from 'antd';
+import { Menu, Breadcrumb, Row, Col, Button, PageHeader } from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
 import WebTerminal from './components/Terminal';
