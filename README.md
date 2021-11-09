@@ -3,7 +3,7 @@
 ![license-mit](https://img.shields.io/badge/license-MIT-green)
 ![release](https://img.shields.io/badge/release-pre--alpha-lightgrey)
 
-Matrisea (/ˈmeɪtrɪksiː/) is a cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
+Matrisea (/ˈmeɪtrɪksiː/) is an open-sourced, cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
 
 ![demo](./docs/demo.gif)
 
@@ -17,7 +17,22 @@ Matrisea (/ˈmeɪtrɪksiː/) is a cloud-based Android reversing platform that pr
     - Provide a tool to download pre-built artifacts from Android CI
 - Provide a web UI to manage the device fleet and to access devices' VNC stream and interactive shell
 
+[[toc]]
+
 ## Quick Start
+
+**System Requirements**
+
+Matrisea is a web service that runs on both bare metal machines and VMs. However if you intend to use a VM through VirtualBox/VMware Workstation/ESXi, make sure to expose hardware-assisted virtualization to the guest OS.
+
+Matrisea only supports Ubuntu at the moment.
+
+Other pre-requisites:
+- golang
+- docker - *make sure docker can be managed by a non-root user [\[more details\]](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)*
+
+
+**Installation**
 ```
 git clone https://github.com/senyuuri/matrisea
 cd matrisea; ./setup.sh
@@ -28,11 +43,6 @@ docker-compose up -d
 ```
 
 ## Development
-
-**Prerequisites**
-- go v1.16+
-- docker v20+
-- run `docker ps` and see if you can access docker socket without `sudo`. If permission is denied, add your user to the `docker` group.
 
 **Preparation**
 1. Clone the repo and build cuttlefish image. Once finished, reboot to load additional kernel modules and apply udev rules.
@@ -53,7 +63,7 @@ docker-compose up -d
    unzip aosp_cf_x86_64_phone-img-xxxxxx.zip
    ```
 
-**Frontend**
+**Start the frontend server**
 ```
 sudo apt install -y npm
 sudo npm install -g yarn
@@ -62,7 +72,7 @@ cd frontend && yarn install
 yarn start
 ```
 
-**Backend**
+**Start the backend server**
 
 ```
 cd backend/api
@@ -73,3 +83,12 @@ go run .
 > *`gopls` in VSCode can't corretly identify imports for go modules in subfolders. To resolve "cannot find packages" warnings, goto `File > Add folder to workspace` and import `backend/api` and `backend/vmm` respectively.*
 > *The [issue](https://github.com/golang/go/issues/32394) has been discussed in the community and is currently WIP.*
 
+## Architecture
+Matrisea is built on top of a variety of open source technologies.
+- Frontend: React, novnc, xterm.js
+- Backend: Golang, Gin
+- VM: crosvm-backed cuttlefish AVD, KVM
+- Orchestration: docker
+- Android OS: AOSP GSI images
+
+![architecture](./docs/architecture.png)
