@@ -28,7 +28,7 @@ func main() {
 	}
 	router = gin.Default()
 	config := cors.DefaultConfig()
-	config.AllowHeaders = []string{"Origin", "x-requested-with"}
+	config.AllowHeaders = []string{"Origin", "x-requested-with", "content-type"}
 	config.AllowOrigins = []string{"http://localhost:3000"}
 	router.Use(cors.New(config))
 
@@ -77,7 +77,9 @@ func createVM(c *gin.Context) {
 	}
 	log.Printf("createVM: %s\n", json)
 
-	// check if device alr exist
+	// check if device exist
+
+	// check if image files exist
 
 	// create folder
 

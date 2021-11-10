@@ -1,6 +1,6 @@
 import { Drawer, Form, Button, Col, Row, Input, Select, Upload, Modal, Tabs, message} from 'antd';
 import React, { useState, useCallback, useEffect } from 'react';
-import { PlusOutlined, InboxOutlined} from '@ant-design/icons';
+import { PlusOutlined, InboxOutlined, CheckOutlined} from '@ant-design/icons';
 const { TabPane } = Tabs;
 const { Dragger } = Upload;
 const { Option } = Select;
@@ -14,6 +14,10 @@ function NewVMForm(props) {
 	const [visible, setVisible] = useState(props.visible);
   const [filePickerType, setFilePickerType] = useState('System')
   const [fileList, setFileList] = useState([])
+  const [systemImageButtonText, setSystemImageButtonText] = useState('Select File')
+  const [systemImageIcon, setSystemImageIcon] = useState('PlusOutlined')
+  const [cvdImageButtonText, setCvdImageButtonText] = useState('Select File')
+  const [cvdImageIcon, setCvdImageIcon] = useState('PlusOutlined')
   
 	useEffect(() => {
 		setVisible(props.visible);
@@ -31,7 +35,6 @@ function NewVMForm(props) {
     var newFileList = []
     axios.get(`${API_ENDPOINT}/files/system`)
     .then(function (response) {
-      console.log(response);
       var files = response.data.files;
       if(files != null ){
         files.forEach(f => {
@@ -41,8 +44,7 @@ function NewVMForm(props) {
           });
         })
       }
-      setFileList(newFileList)
-      console.log(newFileList)
+      setFileList(newFileList);
     })
     .catch(function (error) {
       console.error(error);
@@ -77,8 +79,17 @@ function NewVMForm(props) {
     showFileModal();
   }
 
+  const resetForm = () => {
+    form.resetFields();
+    setSystemImageButtonText('Select File');
+    setSystemImageIcon('PlusOutlined');
+    setCvdImageButtonText('Select File');
+    setCvdImageIcon('PlusOutlined');
+  }
+
   const handleClose = useCallback((values) => {
 		setVisible(false);
+    resetForm();
 		props.onChange();
 	}, []);
 
@@ -97,6 +108,7 @@ function NewVMForm(props) {
     });
 
 		setVisible(false);
+    resetForm();
 		props.onChange();
 	}, []);
 
@@ -116,13 +128,24 @@ function NewVMForm(props) {
 		>
       <Form.Provider
         onFormFinish={(name, { values, forms }) => {
-          if (name === 'userForm') {
+          if (name === 'fileForm') {
             const { basicForm } = forms;
-            // const users = basicForm.getFieldValue('users') || [];
-            // basicForm.setFieldsValue({
-            //   users: [...users, values],
-            // });
-            setVisible(false);
+            console.log('values from fileform', values)
+            if(filePickerType === "System") {
+              basicForm.setFieldsValue({
+                system_image: values.filename
+              });
+              setSystemImageButtonText(values.filename);
+              setSystemImageIcon('CheckOutlined');
+            }
+            else if (filePickerType === "CVD") {
+              basicForm.setFieldsValue({
+                cvd_image: values.filename
+              })
+              setCvdImageButtonText(values.filename);
+              setCvdImageIcon('CheckOutlined');
+            }
+            setFileModalVisible(false);
           }
         }}
       >
@@ -202,8 +225,8 @@ function NewVMForm(props) {
               >
                 <Form.Item 
                   noStyle
-                  name="system-image"
-                  rules={[{ required: false, message: 'Please upload/choose a system image' }]}
+                  name="system_image"
+                  rules={[{ required: true, message: 'Please upload/choose a system image' }]}
                 >
                   <Input hidden/>
                 </Form.Item>
@@ -212,9 +235,9 @@ function NewVMForm(props) {
                   type="dashed"
                   onClick={chooseSystemFile}
                   style={{ width: '100%' }}
-                  icon={<PlusOutlined />}
+                  icon={ systemImageIcon === 'PlusOutlined'?<PlusOutlined />:<CheckOutlined/>}
                 >
-                  Select File
+                  {systemImageButtonText}
                 </Button>
                 </Form.Item>
               </Form.Item>
@@ -223,8 +246,8 @@ function NewVMForm(props) {
               <Form.Item label="CVD Image">
                 <Form.Item
                   noStyle
-                  name="CVD Image"
-                  rules={[{ required: false, message: 'Please upload/choose a CVD image' }]}
+                  name="cvd_image"
+                  rules={[{ required: true, message: 'Please upload/choose a CVD image' }]}
                 >
                   <Input hidden/>
                 </Form.Item>
@@ -233,9 +256,9 @@ function NewVMForm(props) {
                     type="dashed"
                     onClick={chooseCVDFile}
                     style={{ width: '100%' }}
-                    icon={<PlusOutlined />}
-                    >
-                      Select File
+                    icon={ cvdImageIcon === 'PlusOutlined'?<PlusOutlined />:<CheckOutlined/>}
+                  >
+                    {cvdImageButtonText}  
                   </Button>
                 </Form.Item>
               </Form.Item>
@@ -253,13 +276,13 @@ function NewVMForm(props) {
 	)
 }
 
-
 const FileModalForm = ({ visible, onCancel, target, fileList }) => {
   const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT
   const [form] = Form.useForm();
 
   const onOk = () => {
     form.submit();
+    onCancel();
   };
 
   const draggerProps = {
@@ -270,11 +293,11 @@ const FileModalForm = ({ visible, onCancel, target, fileList }) => {
     onChange(info) {
       const { status } = info.file;
       if (status !== 'uploading') {
-        console.log(info.file, info.fileList);
+        //console.log(info.file, info.fileList);
       }
       if (status === 'done') {
         message.success(`${info.file.name} file uploaded successfully.`);
-        console.log('success', info)
+        form.setFieldsValue({filename: info.file.name});
       } else if (status === 'error') {
         message.error(`${info.file.name} file upload failed.`);
       }
@@ -289,11 +312,8 @@ const FileModalForm = ({ visible, onCancel, target, fileList }) => {
 
       <Tabs defaultActiveKey="1">
           <TabPane tab="Choose Image" key="1">
-          <Form form={form} layout="vertical" name="userForm">
-            <Form.Item
-              name="name"
-              rules={[{ required: true, },]}
-            >
+          <Form form={form} layout="vertical" name="fileForm">
+            <Form.Item name="filename">
               <Select
                 showSearch
                 style={{ width: '100%' }}
