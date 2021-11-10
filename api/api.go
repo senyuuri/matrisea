@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -26,6 +28,7 @@ func main() {
 	}
 	router = gin.Default()
 	config := cors.DefaultConfig()
+	config.AllowHeaders = []string{"Origin", "x-requested-with"}
 	config.AllowOrigins = []string{"http://localhost:3000"}
 	router.Use(cors.New(config))
 
@@ -38,6 +41,9 @@ func main() {
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.DELETE("/vms/:name", removeVM)
 		v1.GET("/vms/:name/ws", terminalHandler)
+		v1.GET("/files/system", getSystemImageList)
+		v1.GET("/files/cvd", getCVDImageList)
+		v1.POST("/files/upload", uploadFile)
 	}
 	router.Run()
 }
@@ -154,6 +160,76 @@ func terminalHandler(c *gin.Context) {
 		wsWriterCopy(hijackedResp.Conn, conn)
 	}()
 	wsReaderCopy(conn, hijackedResp.Conn)
+}
+
+func getSystemImageList(c *gin.Context) {
+	var files []string
+
+	err := filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
+		if strings.HasSuffix(path, ".zip") {
+			files = append(files, filepath.Base(path))
+		}
+		return nil
+	})
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(200, gin.H{"files": files})
+}
+
+func getCVDImageList(c *gin.Context) {
+	var files []string
+
+	err := filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
+		if strings.HasSuffix(path, ".tar") {
+			files = append(files, filepath.Base(path))
+		}
+		return nil
+	})
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(200, gin.H{"files": files})
+}
+
+func uploadFile(c *gin.Context) {
+	file, err := c.FormFile("file")
+	// The file cannot be received.
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"message": "No file is received",
+		})
+		return
+	}
+
+	// Retrieve file information
+	extension := filepath.Ext(file.Filename)
+	log.Println(extension)
+	if extension != ".zip" && extension != ".tar" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": "Unsupported file formats"},
+		)
+		return
+	}
+
+	// The file is received, so let's save it
+	if err := c.SaveUploadedFile(file, v.UploadDir+"/"+file.Filename); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"message": "Unable to save the file",
+		})
+		return
+	}
+
+	// File saved successfully. Return proper result
+	c.JSON(http.StatusOK, gin.H{
+		"message": "success",
+	})
 }
 
 // write terminal output to front end

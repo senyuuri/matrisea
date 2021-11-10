@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Breadcrumb, Row, Button, } from 'antd';
 import QueueAnim from 'rc-queue-anim';
-import axios from "axios"
 
 import NewVMForm from './components/NewVMForm';
 import DeviceTable from './components/DeviceTable';
 
 function DeviceList(){
+  const axios = require('axios');
+  const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT
+
   const [formVisible, setFormVisible] = useState(false);
   const [deviceList, setDeviceList] = useState([]);
 
@@ -15,7 +17,7 @@ function DeviceList(){
   }
 
   useEffect(() => {
-    axios.get("http://localhost:8080/api/v1/vms/")
+    axios.get(`${API_ENDPOINT}/vms`)
       .then((response) => {
         response.data.forEach((device) => {
           device['id'] = device['id'].substring(0,10);

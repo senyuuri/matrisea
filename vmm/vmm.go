@@ -119,6 +119,8 @@ func NewVMM(dataDir string) (*VMM, error) {
 	folders := []string{
 		dataDir,
 		devicesDir,
+		dbDir,
+		uploadDir,
 	}
 	for _, f := range folders {
 		if _, err := os.Stat(f); os.IsNotExist(err) {

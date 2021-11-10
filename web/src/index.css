@@ -11,3 +11,13 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* fix tabs style in NewVMForm */
+.ant-modal-body {
+  padding-top: 15px !important
+}
+
+/* fix upload dragger won't show uploaded file list issue */
+.ant-upload.ant-upload-drag {
+  height: 80% !important
+}
