@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -37,6 +38,9 @@ func main() {
 	{
 		v1.GET("/vms", listVM)
 		v1.POST("/vms", createVM)
+		v1.GET("/vms/ws", func(c *gin.Context) {
+			createVMHandler(c.Writer, c.Request)
+		})
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.DELETE("/vms/:name", removeVM)
@@ -48,14 +52,42 @@ func main() {
 	router.Run()
 }
 
-type CreateDeviceForm struct {
+var wsUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		// TODO verify origins
+		return true
+	},
+}
+
+type CreateDeviceData struct {
 	DeviceName  string `json:"name" binding:"required"`
 	DeviceType  string `json:"type" binding:"required"`
 	CPU         int    `json:"cpu" binding:"required"`
 	RAM         int    `json:"ram" binding:"required"`
-	SystemImage string `json:"system-image"`
-	CVDImage    string `json:"cvd-image"`
-	KernelImage string `json:"kernel-image"`
+	SystemImage string `json:"system_image"`
+	CVDImage    string `json:"cvd_image"`
+	KernelImage string `json:"kernel_image"`
+}
+
+type CreateDeviceRequest struct {
+	Type string           `json:"type" binding:"required"`
+	Data CreateDeviceData `json:"data"`
+}
+
+const (
+	STEP_START = iota
+	STEP_PREFLIGHT_CHECKS
+	STEP_CREATE_VM
+	STEP_LOAD_IMAGES
+	STEP_START_VM
+)
+
+type CreateDeviceResponse struct {
+	Step     int    `json:"step" binding:"required"`
+	HasError bool   `json:"has_error" binding:"required"`
+	ErrorMsg string `json:"error"`
 }
 
 // TODO get crosvm process status in running containers
@@ -69,19 +101,14 @@ func listVM(c *gin.Context) {
 	c.JSON(200, vmList)
 }
 
+// deprecated
 func createVM(c *gin.Context) {
-	var json CreateDeviceForm
+	var json CreateDeviceData
 	if err := c.ShouldBindJSON(&json); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	log.Printf("createVM: %s\n", json)
-
-	// check if device exist
-
-	// check if image files exist
-
-	// create folder
 
 	c.JSON(200, gin.H{"container_name": "aaabbb"})
 	// create and run a container
@@ -97,6 +124,64 @@ func createVM(c *gin.Context) {
 	// // 	return
 	// // }
 	// c.JSON(200, gin.H{"container_name": name})
+}
+
+func createVMHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("Failed to set websocket upgrade: %+v", err)
+		return
+	}
+	for {
+		var req CreateDeviceRequest
+		err := conn.ReadJSON(&req)
+		if err != nil {
+			log.Printf("Failed to parse WS request. Reason: %s\n", err.Error())
+			conn.WriteMessage(websocket.TextMessage, []byte("error"+err.Error()))
+			break
+		}
+		log.Printf("ws received: %s\n", req)
+
+		// although we only have 1 type for now. the field is reserved for extensibility
+		if req.Type == "create" {
+			// 1 - STEP_START: request received
+			conn.WriteJSON(&CreateDeviceResponse{
+				Step:     STEP_START,
+				HasError: false,
+			})
+			// 2 - STEP_PREFLIGHT_CHECKS
+			// check if device exist
+
+			// check if image files exist
+
+			// create folder
+			time.Sleep(1 * time.Second)
+			conn.WriteJSON(&CreateDeviceResponse{
+				Step:     STEP_PREFLIGHT_CHECKS,
+				HasError: false,
+			})
+			// 3 - STEP_CREATE_VM
+			time.Sleep(1 * time.Second)
+			conn.WriteJSON(&CreateDeviceResponse{
+				Step:     STEP_CREATE_VM,
+				HasError: false,
+			})
+			// 4 - STEP_LOAD_IMAGES
+			time.Sleep(1 * time.Second)
+			conn.WriteJSON(&CreateDeviceResponse{
+				Step:     STEP_LOAD_IMAGES,
+				HasError: false,
+			})
+			// 5 - STEP_START_VM
+			time.Sleep(1 * time.Second)
+			conn.WriteJSON(&CreateDeviceResponse{
+				Step:     STEP_START_VM,
+				HasError: true,
+			})
+			break
+		}
+		conn.WriteMessage(websocket.TextMessage, []byte("unknown_type"))
+	}
 }
 
 func startVM(c *gin.Context) {
