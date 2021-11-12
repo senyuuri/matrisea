@@ -397,14 +397,14 @@ func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse,
 // Notice that websockify only listen on eth0 inside of the container which isn't reachable from outside of the host.
 // The caller of this function is responsible to setup a reverse proxy to enable external VNC access.
 func (v *VMM) startVNCProxy(containerName string) error {
-	resp, err := v.containerExec(containerName, "apt install -y -qq websockify", "root")
+	resp, err := v.ContainerExec(containerName, "apt install -y -qq websockify", "root")
 	if err != nil {
 		return err
 	}
 	if resp.ExitCode != 0 {
 		return &VMMError{"Failed to install websockify"}
 	}
-	resp, err = v.containerExec(containerName, "websockify -D 6080 127.0.0.1:6444", "vsoc-01")
+	resp, err = v.ContainerExec(containerName, "websockify -D 6080 127.0.0.1:6444", "vsoc-01")
 	if err != nil {
 		return err
 	}
@@ -513,7 +513,7 @@ func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath
 // containing stdout, stderr, and exit code. Note:
 //  - this is a synchronous operation;
 //  - cmd stdin is closed.
-func (v *VMM) containerExec(containerName string, cmd string, user string) (ExecResult, error) {
+func (v *VMM) ContainerExec(containerName string, cmd string, user string) (ExecResult, error) {
 	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
 	start := time.Now()
 	ctx := context.Background()
@@ -599,7 +599,7 @@ func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
 	// String representation of the container state. Can be one of "created", "running", "paused", "restarting", "removing", "exited", or "dead"
 	if containerJSON.State.Status == "running" {
 		// use grep "[x]xxx" technique to prevent grep itself from showing up in the ps result
-		resp, err := v.containerExec(containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
+		resp, err := v.ContainerExec(containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
 		if err != nil {
 			return -1, err
 		}

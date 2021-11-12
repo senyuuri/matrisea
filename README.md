@@ -23,8 +23,6 @@ Matrisea (/ˈmeɪtrɪksiː/) is a cloud-based Android reversing platform that pr
 
 Matrisea is a web service that runs on both bare metal machines and VMs. However if you intend to use a VM through VirtualBox/VMware Workstation/ESXi, make sure to expose hardware-assisted virtualization to the guest OS.
 
-
-
 Matrisea only supports Ubuntu at the moment.
 
 Other pre-requisites:
