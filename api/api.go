@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -16,8 +17,9 @@ import (
 )
 
 var (
-	router *gin.Engine
-	v      *vmm.VMM
+	router    *gin.Engine
+	v         *vmm.VMM
+	WSTimeout = 3600 * time.Second
 )
 
 func main() {
@@ -36,7 +38,6 @@ func main() {
 	v1 := api.Group("/v1")
 	{
 		v1.GET("/vms", listVM)
-		v1.POST("/vms", createVM)
 		v1.GET("/vms/ws", func(c *gin.Context) {
 			createVMHandler(c.Writer, c.Request)
 		})
@@ -100,29 +101,26 @@ func listVM(c *gin.Context) {
 	c.JSON(200, vmList)
 }
 
-// deprecated
-func createVM(c *gin.Context) {
-	var json CreateDeviceData
-	if err := c.ShouldBindJSON(&json); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Printf("createVM: %s\n", json)
+func keepAlive(c *websocket.Conn, timeout time.Duration) {
+	lastResponse := time.Now()
+	c.SetPongHandler(func(msg string) error {
+		lastResponse = time.Now()
+		return nil
+	})
 
-	c.JSON(200, gin.H{"container_name": "aaabbb"})
-	// create and run a container
-	// name, err := v.VMCreate("android11-gsi-cf")
-
-	// if err != nil {
-	// 	c.JSON(500, gin.H{"error": err.Error()})
-	// 	return
-	// }
-	// // unzip/untar selected images to the container's image folder on the host
-	// // if err := v.LoadImages(name, aosp_file, cvd_file); err != nil {
-	// // 	c.JSON(500, gin.H{"error": err.Error()})
-	// // 	return
-	// // }
-	// c.JSON(200, gin.H{"container_name": name})
+	go func() {
+		for {
+			err := c.WriteMessage(websocket.PingMessage, []byte("keepalive"))
+			if err != nil {
+				return
+			}
+			time.Sleep(30 * time.Second)
+			if time.Since(lastResponse) > timeout {
+				c.Close()
+				return
+			}
+		}
+	}()
 }
 
 func createVMHandler(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +129,7 @@ func createVMHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Failed to set websocket upgrade: %+v", err)
 		return
 	}
+	keepAlive(conn, WSTimeout)
 	for {
 		var req CreateDeviceRequest
 		err := conn.ReadJSON(&req)
@@ -284,6 +283,7 @@ func createVMHandler(w http.ResponseWriter, r *http.Request) {
 					HasError: true,
 					ErrorMsg: "VM failed to start. Reason: " + err.Error(),
 				})
+				break
 			}
 			conn.WriteJSON(&CreateDeviceResponse{
 				Step:     STEP_START_VM,
@@ -342,6 +342,7 @@ func terminalHandler(c *gin.Context) {
 	// run bash in container and get the hijacked session
 	hijackedResp, err := v.AttachToTerminal(container)
 	if err != nil {
+		// TODO how to let front end know this error?
 		log.Println(err.Error())
 		return
 	}

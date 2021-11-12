@@ -1,5 +1,5 @@
 import { Drawer, Form, Button, Col, Row, Input, Select, Upload, Modal, Tabs, Divider, Steps, message} from 'antd';
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useReducer } from 'react';
 import { PlusOutlined, InboxOutlined, CheckOutlined, LoadingOutlined, CloseCircleOutlined} from '@ant-design/icons';
 const { TabPane } = Tabs;
 const { Dragger } = Upload;
@@ -27,8 +27,18 @@ function NewVMForm(props) {
   const [step1Visible, setStep1Visible] = useState(true);
   const [step2Visible, setStep2Visible] = useState(false);
   const [step3Visible, setStep3Visible] = useState(false);
-  const [stepMessages, setStepMessages] = useState(Array(5).fill(''));
   const [stepStartTime, setStepStartTime] = useState();
+
+  const [stepMessages, setStepMessages] = useReducer((stepMessages, { type, idx, value }) => {
+    switch (type) {
+      case "update":
+        let tmpArr = [...stepMessages];
+        tmpArr[idx] = value;
+        return tmpArr;
+      default:
+        return stepMessages;
+    }
+  }, Array(5).fill(''));
 
   const VMCreationSteps = [
     "Request Submitted", "Preflight Checks", "Create VM", "Load Images", "Start VM"
@@ -47,31 +57,34 @@ function NewVMForm(props) {
   );
 
   useEffect(() => {
-      if (!ws.current) return;
-      if (ws.current.readyState == 1){
-        ws.current.send('ws-hello')
-      }
-      ws.current.onmessage = e => {
-          // to update vm creation progress
-          var msg = JSON.parse(e.data);
-          console.log(msg);
-          
-          if(msg.has_error) {
-            setHasErrorInCreateVMStep(true);
-            setStepMessages[msg.step] = msg.error
-          } else {
-            // step in msg means the previously completed step, so we +1 to advance 
-            setCurrentCreateVMStep(msg.step+1)
-            setStepMessages[msg.step] = (new Date).getTime() - stepStartTime;
-            setStepStartTime((new Date).getTime());
+    if (!ws.current) return;
+    ws.current.onmessage = e => {
+        // to update vm creation progress
+        var msg = JSON.parse(e.data);
+        console.log(msg);
+        
+        if(msg.has_error) {
+          setHasErrorInCreateVMStep(true);
+          setStepMessages({type:"update", idx: msg.step, value: msg.error});
+        } else {
+          // step in msg means the previously completed step, so we +1 to advance 
+          setCurrentCreateVMStep(msg.step+1)
+          let diff = Math.round(new Date().getTime() / 1000 - stepStartTime) + 1
+          let time_cost = Math.round(diff/ 60) + 'm ' + diff % 3 + 's' 
+          setStepMessages({type:"update", idx: msg.step, value: time_cost });
+          setStepStartTime(new Date().getTime() / 1000);
+
+          if (msg.step + 1 === 3) {
+            setStepMessages({type:"update", idx: 3, value: "Depends on the size of images, this may take 2-3 minutes..." });
           }
-      };
-  }, []);
+        }
+    };
+  });
 
 	useEffect(() => {
 		setVisible(props.visible);
 	}, [props]);
-  
+
   const showFileModal = () => {
     setFileModalVisible(true);
   };
@@ -160,7 +173,7 @@ function NewVMForm(props) {
     setStep1Visible(false);
     setStep2Visible(true);
     setStep3Visible(false);
-    setStepStartTime((new Date).getTime());
+    setStepStartTime(new Date().getTime() / 1000);
 	}, []);
 
   const onDeviceCreationSuccess = () => {
