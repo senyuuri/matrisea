@@ -7,7 +7,7 @@ import DeviceTable from './components/DeviceTable';
 
 function DeviceList(){
   const axios = require('axios');
-  const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT
+  const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
 
   const [formVisible, setFormVisible] = useState(false);
   const [deviceList, setDeviceList] = useState([]);
@@ -17,7 +17,7 @@ function DeviceList(){
   }
 
   useEffect(() => {
-    axios.get(`${API_ENDPOINT}/vms`)
+    axios.get(API_ENDPOINT + `/vms`)
       .then((response) => {
         response.data.forEach((device) => {
           device['id'] = device['id'].substring(0,10);
@@ -29,7 +29,7 @@ function DeviceList(){
         setDeviceList(response.data)
       })
       .catch((error) => console.log(error))
-  }, []);
+  });
 
   return (
     <div key="device-list">

@@ -4,8 +4,8 @@ import { FitAddon } from 'xterm-addon-fit';
 import { AttachAddon } from 'xterm-addon-attach';
 
 function WebTerminal(){
-    const WS_ENDPOINT = process.env.REACT_APP_WS_ENDPOINT
-    const ws = new WebSocket(`${WS_ENDPOINT}/vms/matrisea-cvd-BCmGbk/ws`);
+    const WS_ENDPOINT = "ws//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT
+    const ws = new WebSocket(WS_ENDPOINT + "/vms/matrisea-cvd-BCmGbk/ws");
 
     const xtermRef = useRef(null);
     const fitAddon = new FitAddon();

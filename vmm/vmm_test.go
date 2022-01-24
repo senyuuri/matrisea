@@ -166,7 +166,7 @@ func TestStartVNCProxy(t *testing.T) {
 }
 
 func TestContainerExec(t *testing.T) {
-	resp, err := vmm.containerExec(vmName, "uname -a", "vsoc-01")
+	resp, err := vmm.ContainerExec(vmName, "uname -a", "vsoc-01")
 	if err != nil {
 		t.Error(err.Error())
 	}
@@ -202,7 +202,7 @@ func TestVMMIntegration(t *testing.T) {
 
 				if strings.HasSuffix(path, ".zip") {
 					_, srcFile := filepath.Split(path)
-					resp, err := vmm.containerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/", "vsoc-01")
+					resp, err := vmm.ContainerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/", "vsoc-01")
 					if err != nil {
 						t.Fatal(cperr.Error())
 					}

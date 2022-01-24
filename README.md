@@ -74,14 +74,13 @@ yarn start
 ```
 
 **Start the backend server**
-
+Specify a local `DATA_DIR` for runtime storage (configs, images, VMs etc.)
 ```
-cd backend/api
-go run .
+cd api && DATA_DIR={...} go run .
 ```
 > *For VSCode Users*
 > 
-> *`gopls` in VSCode can't corretly identify imports for go modules in subfolders. To resolve "cannot find packages" warnings, goto `File > Add folder to workspace` and import `backend/api` and `backend/vmm` respectively.*
+> *`gopls` in VSCode can't corretly identify imports for go modules in subfolders. To resolve "cannot find packages" warnings, goto `File > Add folder to workspace` and import folder `api` and `vmm` respectively.*
 > *The [issue](https://github.com/golang/go/issues/32394) has been discussed in the community and is currently WIP.*
 
 ## Architecture

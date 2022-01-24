@@ -8,9 +8,9 @@ const { Step } = Steps;
 
 function NewVMForm(props) {
   const axios = require('axios');
-  const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT
+  const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
+  const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT
   const ws = useRef(null);
-  const WS_ENDPOINT = process.env.REACT_APP_WS_ENDPOINT
 
   const [form] = Form.useForm();
   const [fileModalVisible, setFileModalVisible] = useState(false);
@@ -46,7 +46,7 @@ function NewVMForm(props) {
 
   /* use websocket to get synchorous update on vm creation*/
   useEffect(() => {
-    ws.current = new WebSocket(`${WS_ENDPOINT}/vms/ws`);
+    ws.current = new WebSocket(WS_ENDPOINT + "/vms/ws");
     ws.current.onopen = () => console.log("ws opened");
     ws.current.onclose = () => console.log("ws closed");
     const wsCurrent = ws.current;
@@ -95,7 +95,7 @@ function NewVMForm(props) {
 
   const chooseSystemFile = () => {
     var newFileList = []
-    axios.get(`${API_ENDPOINT}/files/system`)
+    axios.get(API_ENDPOINT + "/files/system")
     .then(function (response) {
       var files = response.data.files;
       if(files != null ){
@@ -118,7 +118,7 @@ function NewVMForm(props) {
 
   const chooseCVDFile = () => {
     var newFileList = []
-    axios.get(`${API_ENDPOINT}/files/cvd`)
+    axios.get(API_ENDPOINT + "/files/cvd")
     .then(function (response) {
       var files = response.data.files;
       if(files != null ){
@@ -370,9 +370,9 @@ function NewVMForm(props) {
 }
 
 const FileModalForm = ({ visible, onCancel, target, fileList }) => {
-  const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT
+  const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
   const [form] = Form.useForm();
-
+  
   const onOk = () => {
     form.submit();
     onCancel();
@@ -382,7 +382,7 @@ const FileModalForm = ({ visible, onCancel, target, fileList }) => {
     name: 'file',
     multiple: false,
     accept: ".zip,.tar",
-    action: `${API_ENDPOINT}/files/upload`,
+    action: API_ENDPOINT + "/files/upload",
     onChange(info) {
       const { status } = info.file;
       if (status !== 'uploading') {
