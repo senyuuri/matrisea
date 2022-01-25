@@ -104,3 +104,15 @@ Matrisea is built on top of a variety of open source technologies.
 - Android OS: AOSP GSI images
 
 ![architecture](./docs/architecture.png)
+
+## Troubleshooting ##
+**Upgrade vulnerable frontend packages**
+Since yarn doesn't provide a `yarn audit fix`-like utility, we can use `npm` to generate a patched `package.json` then re-import to yarn. 
+
+```
+npm i --package-lock-only
+npm audit fix
+rm yarn.lock
+yarn import --ignore-engines
+rm package-lock.json
+```
