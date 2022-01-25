@@ -16,7 +16,8 @@ function DeviceList(){
     setFormVisible(false);
   }
 
-  useEffect(() => {
+  function updateDeviceList() {
+    
     axios.get(API_ENDPOINT + `/vms`)
       .then((response) => {
         response.data.forEach((device) => {
@@ -29,6 +30,13 @@ function DeviceList(){
         setDeviceList(response.data)
       })
       .catch((error) => console.log(error))
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      updateDeviceList();
+    }, 5000);
+    return () => clearInterval(interval);
   });
 
   return (

@@ -74,6 +74,16 @@ yarn start
 ```
 
 **Start the backend server**
+
+If you intend to use a remote dev machine, add the host IP in `api/api.go`
+```
+func main() {
+    ...
+	config.AllowOrigins = []string{"http://localhost:3000", "http://your_ip_here:3000"}
+    ...
+}
+```
+
 Specify a local `DATA_DIR` for runtime storage (configs, images, VMs etc.)
 ```
 cd api && DATA_DIR={...} go run .
@@ -82,6 +92,8 @@ cd api && DATA_DIR={...} go run .
 > 
 > *`gopls` in VSCode can't corretly identify imports for go modules in subfolders. To resolve "cannot find packages" warnings, goto `File > Add folder to workspace` and import folder `api` and `vmm` respectively.*
 > *The [issue](https://github.com/golang/go/issues/32394) has been discussed in the community and is currently WIP.*
+
+
 
 ## Architecture
 Matrisea is built on top of a variety of open source technologies.

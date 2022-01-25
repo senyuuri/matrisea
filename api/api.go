@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -17,9 +18,12 @@ import (
 )
 
 var (
-	router    *gin.Engine
-	v         *vmm.VMM
-	WSTimeout = 3600 * time.Second
+	router *gin.Engine
+	v      *vmm.VMM
+	// websocket - time allowed to read the next pong message from the peer
+	pongWait = 10 * time.Second
+	// websocket - send pings to peer with this period. Must be less than pongWait
+	pingPeriod = (pongWait * 9) / 10
 )
 
 func main() {
@@ -37,10 +41,10 @@ func main() {
 	api := router.Group("/api")
 	v1 := api.Group("/v1")
 	{
-		v1.GET("/vms", listVM)
-		v1.GET("/vms/ws", func(c *gin.Context) {
+		v1.GET("/ws", func(c *gin.Context) {
 			createVMHandler(c.Writer, c.Request)
 		})
+		v1.GET("/vms", listVM)
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.DELETE("/vms/:name", removeVM)
@@ -104,18 +108,20 @@ func listVM(c *gin.Context) {
 func keepAlive(c *websocket.Conn, timeout time.Duration) {
 	lastResponse := time.Now()
 	c.SetPongHandler(func(msg string) error {
+		fmt.Println("Received pong")
 		lastResponse = time.Now()
 		return nil
 	})
 
 	go func() {
 		for {
+			fmt.Println("Sent ping")
 			err := c.WriteMessage(websocket.PingMessage, []byte("keepalive"))
 			if err != nil {
 				return
 			}
-			time.Sleep(30 * time.Second)
-			if time.Since(lastResponse) > timeout {
+			time.Sleep(timeout)
+			if time.Since(lastResponse) > pongWait {
 				c.Close()
 				return
 			}
@@ -129,7 +135,7 @@ func createVMHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Failed to set websocket upgrade: %+v", err)
 		return
 	}
-	keepAlive(conn, WSTimeout)
+	keepAlive(conn, pingPeriod)
 	for {
 		var req CreateDeviceRequest
 		err := conn.ReadJSON(&req)

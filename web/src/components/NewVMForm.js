@@ -1,6 +1,8 @@
 import { Drawer, Form, Button, Col, Row, Input, Select, Upload, Modal, Tabs, Divider, Steps, message} from 'antd';
 import React, { useState, useCallback, useEffect, useRef, useReducer } from 'react';
 import { PlusOutlined, InboxOutlined, CheckOutlined, LoadingOutlined, CloseCircleOutlined} from '@ant-design/icons';
+import { WsContext } from '../Context';
+
 const { TabPane } = Tabs;
 const { Dragger } = Upload;
 const { Option } = Select;
@@ -9,8 +11,7 @@ const { Step } = Steps;
 function NewVMForm(props) {
   const axios = require('axios');
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
-  const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT
-  const ws = useRef(null);
+  const ws = React.useContext(WsContext);
 
   const [form] = Form.useForm();
   const [fileModalVisible, setFileModalVisible] = useState(false);
@@ -44,42 +45,36 @@ function NewVMForm(props) {
     "Request Submitted", "Preflight Checks", "Create VM", "Load Images", "Start VM"
   ]
 
-  /* use websocket to get synchorous update on vm creation*/
   useEffect(() => {
-    ws.current = new WebSocket(WS_ENDPOINT + "/vms/ws");
-    ws.current.onopen = () => console.log("ws opened");
-    ws.current.onclose = () => console.log("ws closed");
-    const wsCurrent = ws.current;
-    return () => {
-        wsCurrent.close();
-        };
-    }, []
-  );
+    if(ws){
+      ws.addEventListener("message", handleWSMessage);
+      return () => {
+        ws.removeEventListener("message", handleWSMessage);
+      }
+    }
+  }, [ws,stepStartTime]);
 
-  useEffect(() => {
-    if (!ws.current) return;
-    ws.current.onmessage = e => {
-        // to update vm creation progress
-        var msg = JSON.parse(e.data);
-        console.log(msg);
-        
-        if(msg.has_error) {
-          setHasErrorInCreateVMStep(true);
-          setStepMessages({type:"update", idx: msg.step, value: msg.error});
-        } else {
-          // step in msg means the previously completed step, so we +1 to advance 
-          setCurrentCreateVMStep(msg.step+1)
-          let diff = Math.round(new Date().getTime() / 1000 - stepStartTime) + 1
-          let time_cost = Math.round(diff/ 60) + 'm ' + diff % 3 + 's' 
-          setStepMessages({type:"update", idx: msg.step, value: time_cost });
-          setStepStartTime(new Date().getTime() / 1000);
+  const handleWSMessage = (e) => {
+    console.log("ws_event", e);
+    var msg = JSON.parse(e.data);
+    console.log(msg);
+    if(msg.has_error) {
+      setHasErrorInCreateVMStep(true);
+      setStepMessages({type:"update", idx: msg.step, value: msg.error});
+    } else {
+      // step in msg means the previously completed step, so we +1 to advance 
+      setCurrentCreateVMStep(msg.step+1)
+      let diff = Math.round(new Date().getTime() / 1000 - stepStartTime) + 1
+      let time_cost = Math.round(diff/ 60) + 'm ' + diff % 3 + 's' 
+      setStepMessages({type:"update", idx: msg.step, value: time_cost });
+      console.log('step_message',stepStartTime,{type:"update", idx: msg.step, value: time_cost });
+      setStepStartTime(new Date().getTime() / 1000);
 
-          if (msg.step + 1 === 3) {
-            setStepMessages({type:"update", idx: 3, value: "Depends on the size of images, this may take 2-3 minutes..." });
-          }
-        }
-    };
-  });
+      if (msg.step + 1 === 3) {
+        setStepMessages({type:"update", idx: 3, value: "Depends on the size of images, this may take 2-3 minutes..." });
+      }
+    }
+  }
 
 	useEffect(() => {
 		setVisible(props.visible);
@@ -159,8 +154,8 @@ function NewVMForm(props) {
 	}, []);
 
 	const submitForm = useCallback((values) => {
-    if (ws.current.readyState == 1) {
-      ws.current.send(JSON.stringify({
+    if (ws && ws.readyState == 1) {
+      ws.send(JSON.stringify({
         type: 'create',
         data: values
       }));
@@ -174,7 +169,8 @@ function NewVMForm(props) {
     setStep2Visible(true);
     setStep3Visible(false);
     setStepStartTime(new Date().getTime() / 1000);
-	}, []);
+    console.log("currentstepstarttime", new Date().getTime() / 1000);
+	});
 
   const onDeviceCreationSuccess = () => {
     setVisible(false);
