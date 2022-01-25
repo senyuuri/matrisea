@@ -1,6 +1,6 @@
 import { Drawer, Form, Button, Col, Row, Input, Select, Upload, Modal, Tabs, Divider, Steps, message} from 'antd';
-import React, { useState, useCallback, useEffect, useRef, useReducer } from 'react';
-import { PlusOutlined, InboxOutlined, CheckOutlined, LoadingOutlined, CloseCircleOutlined} from '@ant-design/icons';
+import React, { useState, useCallback, useEffect, useReducer } from 'react';
+import { PlusOutlined, InboxOutlined, CheckOutlined, LoadingOutlined} from '@ant-design/icons';
 import { WsContext } from '../Context';
 
 const { TabPane } = Tabs;
@@ -45,19 +45,10 @@ function NewVMForm(props) {
     "Request Submitted", "Preflight Checks", "Create VM", "Load Images", "Start VM"
   ]
 
-  useEffect(() => {
-    if(ws){
-      ws.addEventListener("message", handleWSMessage);
-      return () => {
-        ws.removeEventListener("message", handleWSMessage);
-      }
-    }
-  }, [ws,stepStartTime]);
-
-  const handleWSMessage = (e) => {
+  const handleWSMessage = useCallback((e) => {
     var msg = JSON.parse(e.data);
     // type 1: WS_TYPE_CREATE_VM
-    if (msg.type == 1){
+    if (msg.type === 1){
       if(msg.has_error) {
         setHasErrorInCreateVMStep(true);
         setStepMessages({type:"update", idx: msg.step, value: msg.error});
@@ -75,7 +66,16 @@ function NewVMForm(props) {
         }
       }
     }
-  }
+  },[stepStartTime]);
+
+  useEffect(() => {
+    if(ws){
+      ws.addEventListener("message", handleWSMessage);
+      return () => {
+        ws.removeEventListener("message", handleWSMessage);
+      }
+    }
+  }, [ws,stepStartTime,handleWSMessage]);
 
 	useEffect(() => {
 		setVisible(props.visible);
@@ -135,7 +135,7 @@ function NewVMForm(props) {
     showFileModal();
   }
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     form.resetFields();
     setSystemImageButtonText('Select File');
     setSystemImageIcon('PlusOutlined');
@@ -146,16 +146,16 @@ function NewVMForm(props) {
     setStep1Visible(true);
     setStep2Visible(false);
     setStep3Visible(true);
-  }
+  },[form]);
 
   const handleClose = useCallback((values) => {
 		setVisible(false);
     resetForm();
 		props.onChange();
-	}, []);
+	}, [props, resetForm]);
 
 	const submitForm = useCallback((values) => {
-    if (ws && ws.readyState == 1) {
+    if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({
         type: 'create',
         data: values
@@ -170,8 +170,7 @@ function NewVMForm(props) {
     setStep2Visible(true);
     setStep3Visible(false);
     setStepStartTime(new Date().getTime() / 1000);
-    console.log("currentstepstarttime", new Date().getTime() / 1000);
-	});
+	},[ws]);
 
   const onDeviceCreationSuccess = () => {
     setVisible(false);
@@ -194,7 +193,7 @@ function NewVMForm(props) {
 			}
 		>
       <Steps current={currentStep} size="small">
-        <Step key="Configure" title="Configure" />
+        <Step title="Configure" />
         <Step key="Initialize Device" title="Initialize Device" />
         <Step key="Done" title="Done" />
       </Steps>
@@ -353,6 +352,7 @@ function NewVMForm(props) {
         <Steps current={currentCreateVMStep} direction="vertical">
           {VMCreationSteps.map((step,idx) => (
             <Step 
+              key={idx}
               title={step} 
               icon={currentCreateVMStep === idx ? (!hasErrorInCreateVMStep? <LoadingOutlined />:'') : ''} 
               description={stepMessages[idx]}

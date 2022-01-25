@@ -1,4 +1,4 @@
-import { Table, Tag, Space, Badge } from 'antd';
+import { Table, Tag, Space, Badge, Button } from 'antd';
 import { Link } from 'react-router-dom';
 
 const columns = [
@@ -52,17 +52,25 @@ const columns = [
         render: (text, record) => (
             <Space size="middle">
                 <Link to="/device/aaa">View</Link>
-                <a>Start/Stop</a>
-                <a>Delete</a>
+                <Button type="link" onClick={startStopVM()}>Start/Stop</Button>
+                <Button type="link" onClick={deleteVM()}>Delete</Button>
             </Space>
         ),
     },
 ];
 
+function startStopVM() {
+  //TODO
+}
+
+function deleteVM() {
+  //TODO
+}
+
 function DeviceTable(props) {
-    return (
-        <Table style={{ paddingTop: '10px' }} columns={columns} dataSource={props.data} />
-    )
+  return (
+      <Table style={{ paddingTop: '10px' }} columns={columns} dataSource={props.data} />
+  )
 }
 
 export default DeviceTable;

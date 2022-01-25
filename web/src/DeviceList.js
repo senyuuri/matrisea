@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Breadcrumb, Row, Button, message} from 'antd';
-import QueueAnim from 'rc-queue-anim';
 import { WsContext } from './Context';
 
 import NewVMForm from './components/NewVMForm';
@@ -16,18 +15,18 @@ function DeviceList(){
     setFormVisible(false);
   }
 
-  const requestDeviceListUpdate = ()=> {
+  const requestDeviceListUpdate = useCallback(()=> {
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({
         type: 0
       }));
     }
-  };
+  },[ws]);
 
   function handleDeviceListUpdate(e) {
     var msg = JSON.parse(e.data);
     // type 0: WS_TYPE_LIST_VM
-    if (msg.type == 0){
+    if (msg.type === 0){
       if(msg.has_error) {
         message.error('Unable to get VM status due to', msg.error)  
       }
@@ -56,21 +55,19 @@ function DeviceList(){
         clearInterval(interval);
       }
     }
-  },[ws]);
+  },[ws, requestDeviceListUpdate]);
 
   return (
     <div key="device-list">
         <div className="site-layout-content">
-          <QueueAnim key="content" type={['right', 'left']}>
-            <Row justify="space-between" key="1">
-              <Breadcrumb>
-                <Breadcrumb.Item>Home</Breadcrumb.Item>
-                <Breadcrumb.Item>Devices</Breadcrumb.Item>
-              </Breadcrumb>
-              <Button onClick={() => {setFormVisible(true);}}>New Virtual Device</Button>
-            </Row>
-            <DeviceTable data={deviceList} key="2"/>
-          </QueueAnim>
+          <Row justify="space-between" key="1">
+            <Breadcrumb>
+              <Breadcrumb.Item>Home</Breadcrumb.Item>
+              <Breadcrumb.Item>Devices</Breadcrumb.Item>
+            </Breadcrumb>
+            <Button onClick={() => {setFormVisible(true);}}>New Virtual Device</Button>
+          </Row>
+          <DeviceTable data={deviceList} key="2"/>
         </div>
         <NewVMForm visible={formVisible} onChange={handleFormClose}/>
   </div>
