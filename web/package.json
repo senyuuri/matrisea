@@ -9,7 +9,7 @@
     "@testing-library/user-event": "^12.8.3",
     "antd": "^4.16.6",
     "axios": "^0.24.0",
-    "rc-queue-anim": "^1.8.5",
+    "rc-queue-anim": "^2.0.0",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
     "react-router-dom": "^5.2.0",
