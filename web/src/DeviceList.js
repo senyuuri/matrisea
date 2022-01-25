@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { Breadcrumb, Row, Button, } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Breadcrumb, Row, Button, message} from 'antd';
 import QueueAnim from 'rc-queue-anim';
+import { WsContext } from './Context';
 
 import NewVMForm from './components/NewVMForm';
 import DeviceTable from './components/DeviceTable';
 
 function DeviceList(){
-  const axios = require('axios');
-  const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
+  const ws = React.useContext(WsContext);
 
   const [formVisible, setFormVisible] = useState(false);
   const [deviceList, setDeviceList] = useState([]);
@@ -16,28 +16,47 @@ function DeviceList(){
     setFormVisible(false);
   }
 
-  function updateDeviceList() {
-    
-    axios.get(API_ENDPOINT + `/vms`)
-      .then((response) => {
-        response.data.forEach((device) => {
-          device['id'] = device['id'].substring(0,10);
-          device['key'] = device['id'];
-          let date = new Date(device['created']*1000);
-          device['created'] = date.toLocaleString('en-US', { timeZone: 'Asia/Singapore' });
-        })
+  const requestDeviceListUpdate = ()=> {
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: 0
+      }));
+    }
+  };
 
-        setDeviceList(response.data)
-      })
-      .catch((error) => console.log(error))
+  function handleDeviceListUpdate(e) {
+    var msg = JSON.parse(e.data);
+    // type 0: WS_TYPE_LIST_VM
+    if (msg.type == 0){
+      if(msg.has_error) {
+        message.error('Unable to get VM status due to', msg.error)  
+      }
+      else {
+        msg.data.vms.forEach((vm) => {
+          vm['id'] = vm['id'].substring(0,10);
+          vm['key'] = vm['id'];
+          let date = new Date(vm['created']*1000);
+          vm['created'] = date.toLocaleString('en-US', { timeZone: 'Asia/Singapore' });
+        });
+        setDeviceList(msg.data.vms);
+      }
+    }
   };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      updateDeviceList();
-    }, 5000);
-    return () => clearInterval(interval);
-  });
+    if(ws){
+      const interval = setInterval(() =>{
+        requestDeviceListUpdate();
+      }, 5000);
+      ws.addEventListener("open", requestDeviceListUpdate)
+      ws.addEventListener("message", handleDeviceListUpdate);
+      return () => {
+        ws.removeEventListener("open", requestDeviceListUpdate);
+        ws.removeEventListener("message", handleDeviceListUpdate);
+        clearInterval(interval);
+      }
+    }
+  },[ws]);
 
   return (
     <div key="device-list">
