@@ -14,7 +14,6 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/mitchellh/mapstructure"
 	"sea.com/matrisea/vmm"
 )
 
@@ -179,17 +178,32 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			conn.WriteMessage(websocket.TextMessage, []byte("error"+err.Error()))
 			break
 		}
-		var wsReq WebSocketRequest
-		json.Unmarshal(buf, &wsReq)
-		switch wsReq.Type {
+
+		var objmap map[string]json.RawMessage
+		err = json.Unmarshal(buf, &objmap)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		var reqType WsMessageType
+		err = json.Unmarshal(objmap["type"], &reqType)
+		if err != nil {
+			log.Println(err.Error())
+		}
+
+		switch reqType {
 		case WS_TYPE_LIST_VM:
-			log.Printf("/api/v1/ws invoke wsListVM()")
+			//log.Printf("/api/v1/ws invoke wsListVM()")  // too chatty
 			wsListVM(conn)
+
 		case WS_TYPE_CREATE_VM:
 			log.Printf("/api/v1/ws invoke wsCreateVM()")
 			var req CreateVMRequest
-			mapstructure.Decode(wsReq.Data, &req)
+			err = json.Unmarshal(objmap["data"], &req)
+			if err != nil {
+				log.Println(err.Error())
+			}
 			wsCreateVM(conn, req)
+
 		default:
 			conn.WriteMessage(websocket.TextMessage, []byte("unknown_type"))
 		}
