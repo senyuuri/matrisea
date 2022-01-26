@@ -76,9 +76,12 @@ type VMs []VMItem
 type VMStatus int
 
 const (
-	VMContainerReady   VMStatus = iota // container is up but crosvm not running
-	VMRunning          VMStatus = iota // crosvm is running
-	VMContainerStopped VMStatus = iota // container is stopped but this shouldn't happen
+	VMReady   VMStatus = iota // container is up but crosvm not running
+	VMRunning VMStatus = iota // crosvm is running
+	// Container is in created/paused/restarting/removing/exited/dead status (not "running")
+	// which shouldn't happen if the container is fully managed by Matrisea.
+	// Require admin intervention to remove/resume using Docker CLI
+	VMContainerError VMStatus = iota
 )
 
 // ExecResult represents a result returned from Exec()
@@ -596,7 +599,8 @@ func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
 	if err != nil {
 		return -1, err
 	}
-	// String representation of the container state. Can be one of "created", "running", "paused", "restarting", "removing", "exited", or "dead"
+	// String representation of the container state
+	// Can be one of "created", "running", "paused", "restarting", "removing", "exited", or "dead"
 	if containerJSON.State.Status == "running" {
 		// use grep "[x]xxx" technique to prevent grep itself from showing up in the ps result
 		resp, err := v.ContainerExec(containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
@@ -606,10 +610,10 @@ func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
 		if strings.Contains(resp.outBuffer.String(), "launch_cvd") {
 			return VMRunning, nil
 		}
-		return VMContainerReady, nil
+		return VMReady, nil
 	}
-	log.Printf("Unexpected status %s of container %s\n", containerJSON.State.Status, containerName)
-	return VMContainerStopped, nil
+	// log.Printf("Unexpected status %s of container %s\n", containerJSON.State.Status, containerName)
+	return VMContainerError, nil
 }
 
 // get the VMPrefix name of a cuttlefish container

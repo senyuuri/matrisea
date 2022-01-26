@@ -1,4 +1,6 @@
-import { Table, Tag, Space, Badge, Button } from 'antd';
+import { Table, Tag, Space, Badge, Button, Tooltip } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
+
 import { Link } from 'react-router-dom';
 
 const columns = [
@@ -40,12 +42,23 @@ const columns = [
     {
       title: 'Status',
       dataIndex: "status",
-      render: (status) => (
-        <>{ 
-          <Badge status="success" text="Running" />
+      render: (status) => {
+        if (status === 0) { // VMReady
+          return <Badge status="default" text="Power Off" />
+        } 
+        else if (status === 1){ // VMRunning
+          return <Badge status="success" text="Running" />
         }
-        </> 
-      )
+        else if (status === 2){ // VMContainerError
+          return <>
+            <Badge status="error" text="Error" />
+            <Tooltip placement="top" title="Unexpected state of VM container. Contact Admin to resolve">
+              <Badge id="vm-status-error-tooltip" count={<QuestionCircleOutlined />} />
+            </Tooltip>
+          </>
+          
+        }
+      }
     },
     {
         title: 'Action',

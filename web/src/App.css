@@ -56,3 +56,8 @@
 .xterm-screen {
   min-height: 500px;
 }
+
+#vm-status-error-tooltip {
+  margin-left: 5px;
+  margin-top: -2px;
+}
