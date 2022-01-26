@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/mitchellh/mapstructure"
 	"sea.com/matrisea/vmm"
 )
 
@@ -35,6 +36,7 @@ var wsUpgrader = websocket.Upgrader{
 	},
 }
 
+// VM creation steps, used by wsCreateVM()
 type CreateVMStep int
 
 const (
@@ -45,6 +47,7 @@ const (
 	STEP_START_VM
 )
 
+// message type for the main WebSocket connection (/api/v1/ws)
 type WsMessageType int
 
 const (
@@ -52,12 +55,14 @@ const (
 	WS_TYPE_CREATE_VM
 )
 
+// Each WsMessageType should define a RequestBody struct and implement AbstractRequestBodyMethod()
 type WebSocketRequest struct {
 	Type WsMessageType `json:"type" binding:"required"`
 	Data RequestBody   `json:"data"`
 }
 
 type RequestBody interface {
+	// should be an empty method
 	AbstractRequestBodyMethod()
 }
 
@@ -85,7 +90,7 @@ type CreateVMRequest struct {
 func (r *CreateVMRequest) AbstractRequestBodyMethod() {}
 
 type CreateVMResponse struct {
-	Step int `json:"step" binding:"required"`
+	Step CreateVMStep `json:"step" binding:"required"`
 }
 
 func (r *CreateVMResponse) AbstractResponseBodyMethod() {}
@@ -111,13 +116,13 @@ func main() {
 	api := router.Group("/api")
 	v1 := api.Group("/v1")
 	{
-		v1.GET("/ws", func(c *gin.Context) {
+		v1.GET("/ws", func(c *gin.Context) { // websocket
 			wsHandler(c.Writer, c.Request)
 		})
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.DELETE("/vms/:name", removeVM)
-		v1.GET("/vms/:name/ws", terminalHandler)
+		v1.GET("/vms/:name/ws", terminalHandler) // websocket
 		v1.GET("/files/system", getSystemImageList)
 		v1.GET("/files/cvd", getCVDImageList)
 		v1.POST("/files/upload", uploadFile)
@@ -125,6 +130,9 @@ func main() {
 	router.Run()
 }
 
+// Send ping/pong message to keep websocket alive.
+// As per RFC, ping is sent by the server and the browser (not client code) should return pong.
+// Note that ping/pong message won't show up in Chrome devtools
 func keepAlive(c *websocket.Conn, timeout time.Duration) {
 	lastResponse := time.Now()
 	c.SetPongHandler(func(msg string) error {
@@ -147,6 +155,16 @@ func keepAlive(c *websocket.Conn, timeout time.Duration) {
 	}()
 }
 
+// Open a shared WS connection for features that require
+// - periodic query e.g. wsListVM()
+// - live update e.g. wsCreateVM()
+//
+// How to implementing a new WS message type xxx
+// - Define a new type in WS_TYPE_xxx in WsMessageType
+// - (Optional) define a new struct xxxRequest and implement AbstractRequestBodyMethod()
+// - (Optional) define a new struct xxxResponse and implement AbstractResponseBodyMethod()
+// - create a handler with name starts with `ws` e.g. wsXxx
+// - register the handler in wsHandler() as a switch case
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -155,28 +173,32 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	keepAlive(conn, pingPeriod)
 	for {
-		var req WebSocketRequest
-		err := conn.ReadJSON(&req)
+		_, buf, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("Failed to parse WS request. Reason: %s\n", err.Error())
 			conn.WriteMessage(websocket.TextMessage, []byte("error"+err.Error()))
 			break
 		}
-		log.Printf("ws received: %+v\n", req)
-		switch req.Type {
+		var wsReq WebSocketRequest
+		json.Unmarshal(buf, &wsReq)
+		switch wsReq.Type {
 		case WS_TYPE_LIST_VM:
+			log.Printf("/api/v1/ws invoke wsListVM()")
 			wsListVM(conn)
 		case WS_TYPE_CREATE_VM:
-			// wsCreateVM(conn)
+			log.Printf("/api/v1/ws invoke wsCreateVM()")
+			var req CreateVMRequest
+			mapstructure.Decode(wsReq.Data, &req)
+			wsCreateVM(conn, req)
 		default:
 			conn.WriteMessage(websocket.TextMessage, []byte("unknown_type"))
 		}
 	}
 }
 
+// Get a list of existing VMs as long as there's a container for it, regardless of the container status
 // TODO get crosvm process status in running containers
 func wsListVM(c *websocket.Conn) {
-	fmt.Println("wsListVM handler")
 	vmList, err := v.VMList()
 	if err != nil {
 		c.WriteJSON(&WebSocketResponse{
@@ -196,156 +218,130 @@ func wsListVM(c *websocket.Conn) {
 	}
 }
 
-// func wsCreateVM(conn *websocket.Conn) {
-// 	// 1 - STEP_START: request received
-// 	conn.WriteJSON(&WebSocketResponse{
-// 		Step:     STEP_START,
-// 		HasError: false,
-// 	})
+// Create and start a new VM in multiple steps (CreateVMStep).
+// Send live updates through websocket
+func wsCreateVM(c *websocket.Conn, req CreateVMRequest) {
+	// 1 - STEP_START: request received
+	wsCreateVMCompleteStep(c, STEP_START)
 
-// 	// 2 - STEP_PREFLIGHT_CHECKS
-// 	// check if device exist
-// 	vmList, err := v.VMList()
-// 	if err != nil {
-// 		conn.WriteJSON(&CreateDeviceResponse{
-// 			Step:     STEP_PREFLIGHT_CHECKS,
-// 			HasError: true,
-// 			ErrorMsg: "Failed to retrieve VM info",
-// 		})
-// 		break
-// 	}
-// 	// TODO move name check before submit
-// 	for _, vm := range vmList {
-// 		if vm.Name == req.Data.DeviceName {
-// 			conn.WriteJSON(&CreateDeviceResponse{
-// 				Step:     STEP_PREFLIGHT_CHECKS,
-// 				HasError: true,
-// 				ErrorMsg: "A VM of the same name already exists.",
-// 			})
-// 			break
-// 		}
-// 	}
-// 	// check if image files exist
-// 	systemImagePath := v.UploadDir + "/" + req.Data.SystemImage
-// 	cvdImagePath := v.UploadDir + "/" + req.Data.CVDImage
-// 	images := []string{
-// 		systemImagePath,
-// 		cvdImagePath,
-// 	}
-// 	for _, img := range images {
-// 		if _, err := os.Stat(img); os.IsNotExist(err) {
-// 			conn.WriteJSON(&CreateDeviceResponse{
-// 				Step:     STEP_PREFLIGHT_CHECKS,
-// 				HasError: true,
-// 				ErrorMsg: "Cannot find the selected image(s)",
-// 			})
-// 			break
-// 		}
-// 	}
-// 	// create device folder
-// 	if err := os.Mkdir(v.DevicesDir+"/"+req.Data.DeviceName, 0755); err != nil {
-// 		conn.WriteJSON(&CreateDeviceResponse{
-// 			Step:     STEP_PREFLIGHT_CHECKS,
-// 			HasError: true,
-// 			ErrorMsg: "Failed to create the device folder. Reason: " + err.Error(),
-// 		})
-// 		break
-// 	}
-// 	conn.WriteJSON(&CreateDeviceResponse{
-// 		Step:     STEP_PREFLIGHT_CHECKS,
-// 		HasError: false,
-// 	})
+	// 2 - STEP_PREFLIGHT_CHECKS
+	vmList, err := v.VMList()
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_PREFLIGHT_CHECKS, "Failed to retrieve VM info")
+		return
+	}
+	// check if a device of the same name already exists
+	// TODO move name check before submit
+	for _, vm := range vmList {
+		if vm.Name == req.DeviceName {
+			wsCreateVMFailStep(c, STEP_PREFLIGHT_CHECKS, "A VM of the same name already exists.")
+			return
+		}
+	}
+	// check if image files exist
+	systemImagePath := v.UploadDir + "/" + req.SystemImage
+	cvdImagePath := v.UploadDir + "/" + req.CVDImage
+	images := []string{
+		systemImagePath,
+		cvdImagePath,
+	}
+	for _, img := range images {
+		if _, err := os.Stat(img); os.IsNotExist(err) {
+			wsCreateVMFailStep(c, STEP_PREFLIGHT_CHECKS, "Cannot find the selected image(s)")
+			return
+		}
+	}
+	// create device folder
+	if err := os.Mkdir(v.DevicesDir+"/"+req.DeviceName, 0755); err != nil {
+		wsCreateVMFailStep(c, STEP_PREFLIGHT_CHECKS, "Failed to create the device folder. Reason: "+err.Error())
+		return
+	}
+	wsCreateVMCompleteStep(c, STEP_PREFLIGHT_CHECKS)
 
-// 	// 3 - STEP_CREATE_VM
-// 	containerName, err := v.VMCreate(req.Data.DeviceName)
-// 	if err != nil {
-// 		conn.WriteJSON(&CreateDeviceResponse{
-// 			Step:     STEP_CREATE_VM,
-// 			HasError: true,
-// 			ErrorMsg: "Failed to create VM. Reason: " + err.Error(),
-// 		})
-// 		break
-// 	}
+	// 3 - STEP_CREATE_VM
+	containerName, err := v.VMCreate(req.DeviceName)
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: "+err.Error())
+		return
+	}
+	wsCreateVMCompleteStep(c, STEP_CREATE_VM)
 
-// 	conn.WriteJSON(&CreateDeviceResponse{
-// 		Step:     STEP_CREATE_VM,
-// 		HasError: false,
-// 	})
+	// 4 - STEP_LOAD_IMAGES
 
-// 	// 4 - STEP_LOAD_IMAGES
+	// ** Time and space considerations on image loading **
+	//
+	// Before launching cuttlefish, we need to unzip system images (~13GB) then copy them to /home/vsoc-01 in the container.
+	// Since docker API mandatorily tars everything before the copy, if we simply unzip the images and copy each file over,
+	// the overhead can be huge (13GB unzip + 13GB tar + 13GB untar).
+	//
+	// The current solution copies the zip into the container first, then unzip it within the container, so we at least could
+	// save lots of time in docker copy (1GB tar + 1GB untar + 13GB unzip).
+	//
+	// ** Why we dropped OverlayFS support **
+	//
+	// As of the current implementation, devices that use the same image have to keep duplicated copies. A more idealised
+	// solution would be to implement some sort of OverlayFS-like mechanism to achieve image reuse. For that to work, we need a
+	// base(lower) read-only directory for images, and a writable layer(upper) for the runtime data. Unfortunatly, the kernel had
+	// dropped overlay-on-overlay support due to its hard-to-maintain complexities. And because Docker defaults to overlay2 as its
+	// storage driver, asking user to change their global storage driver sorely for Matrisea could affect the compatibility of users'
+	// already running workloads. Hence, the OverlayFS idea was dropped.
+	//
+	// The revoked OverlayFS implementation can be found in commit f77a448e309c3c1f0260d1fec74519c79564e182.
+	//
 
-// 	// ** Time and space considerations on image loading **
-// 	//
-// 	// Before launching cuttlefish, we need to unzip system images (~13GB) then copy them to /home/vsoc-01 in the container.
-// 	// Since docker API mandatorily tars everything before the copy, if we simply unzip the images and copy each file over,
-// 	// the overhead can be huge (13GB unzip + 13GB tar + 13GB untar).
-// 	//
-// 	// The current solution copies the zip into the container first, then unzip it within the container, so we at least could
-// 	// save lots of time in docker copy (1GB tar + 1GB untar + 13GB unzip).
-// 	//
-// 	// ** Why we dropped OverlayFS support **
-// 	//
-// 	// As of the current implementation, devices that use the same image have to keep duplicated copies. A more idealised
-// 	// solution would be to implement some sort of OverlayFS-like mechanism to achieve image reuse. For that to work, we need a
-// 	// base(lower) read-only directory for images, and a writable layer(upper) for the runtime data. Unfortunatly, the kernel had
-// 	// dropped overlay-on-overlay support due to its hard-to-maintain complexities. And because Docker defaults to overlay2 as its
-// 	// storage driver, asking user to change their global storage driver sorely for Matrisea could affect the compatibility of users'
-// 	// already running workloads. Hence, the OverlayFS idea was dropped.
-// 	//
-// 	// The revoked OverlayFS implementation can be found in commit f77a448e309c3c1f0260d1fec74519c79564e182.
-// 	//
+	// Load system image (.zip) and unzip in the container
+	err = v.VMLoadFile(containerName, systemImagePath)
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
+		return
+	}
+	_, err = v.ContainerExec(containerName, "unzip /home/vsoc-01/"+req.SystemImage, "vsoc-01")
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to unzip system iamge. Reason: "+err.Error())
+		return
+	}
+	// Load CVD image (.tar)
+	err = v.VMLoadFile(containerName, cvdImagePath)
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
+		return
+	}
+	wsCreateVMCompleteStep(c, STEP_LOAD_IMAGES)
 
-// 	// Load system image (.zip) and unzip in the container
-// 	err = v.VMLoadFile(containerName, systemImagePath)
-// 	if err != nil {
-// 		conn.WriteJSON(&CreateDeviceResponse{
-// 			Step:     STEP_LOAD_IMAGES,
-// 			HasError: true,
-// 			ErrorMsg: "Failed to load system iamge. Reason: " + err.Error(),
-// 		})
-// 		break
-// 	}
-// 	_, err = v.ContainerExec(containerName, "unzip /home/vsoc-01/"+req.Data.SystemImage, "vsoc-01")
-// 	if err != nil {
-// 		conn.WriteJSON(&CreateDeviceResponse{
-// 			Step:     STEP_LOAD_IMAGES,
-// 			HasError: true,
-// 			ErrorMsg: "Failed to unzip system iamge. Reason: " + err.Error(),
-// 		})
-// 		break
-// 	}
-// 	// Load CVD image (.tar)
-// 	err = v.VMLoadFile(containerName, cvdImagePath)
-// 	if err != nil {
-// 		conn.WriteJSON(&CreateDeviceResponse{
-// 			Step:     STEP_LOAD_IMAGES,
-// 			HasError: true,
-// 			ErrorMsg: "Failed to load system iamge. Reason: " + err.Error(),
-// 		})
-// 		break
-// 	}
+	// 5 - STEP_START_VM
+	_, err = v.VMStart(containerName, "")
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_START_VM, "VM failed to start. Reason: "+err.Error())
+		return
+	}
+	wsCreateVMCompleteStep(c, STEP_START_VM)
+}
 
-// 	conn.WriteJSON(&CreateDeviceResponse{
-// 		Step:     STEP_LOAD_IMAGES,
-// 		HasError: false,
-// 	})
+func wsCreateVMCompleteStep(c *websocket.Conn, step CreateVMStep) {
+	err := c.WriteJSON(&WebSocketResponse{
+		Type: WS_TYPE_CREATE_VM,
+		Data: &CreateVMResponse{
+			Step: step,
+		},
+	})
+	if err != nil {
+		log.Printf("Failed to send WS request. Reason: %s\n", err.Error())
+	}
+}
 
-// 	// 5 - STEP_START_VM
-// 	_, err = v.VMStart(containerName, "")
-// 	if err != nil {
-// 		conn.WriteJSON(&CreateDeviceResponse{
-// 			Step:     STEP_START_VM,
-// 			HasError: true,
-// 			ErrorMsg: "VM failed to start. Reason: " + err.Error(),
-// 		})
-// 		break
-// 	}
-// 	conn.WriteJSON(&CreateDeviceResponse{
-// 		Step:     STEP_START_VM,
-// 		HasError: false,
-// 	})
-// 	break
-// }
+func wsCreateVMFailStep(c *websocket.Conn, step CreateVMStep, errorMsg string) {
+	err := c.WriteJSON(&WebSocketResponse{
+		Type: WS_TYPE_CREATE_VM,
+		Data: &CreateVMResponse{
+			Step: step,
+		},
+		HasError: true,
+		ErrorMsg: errorMsg,
+	})
+	if err != nil {
+		log.Printf("Failed to send WS response. Reason: %s\n", err.Error())
+	}
+}
 
 func startVM(c *gin.Context) {
 	name := c.Param("name")

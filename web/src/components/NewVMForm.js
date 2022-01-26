@@ -46,22 +46,23 @@ function NewVMForm(props) {
   ]
 
   const handleWSMessage = useCallback((e) => {
+    console.log(e)
     var msg = JSON.parse(e.data);
     // type 1: WS_TYPE_CREATE_VM
     if (msg.type === 1){
       if(msg.has_error) {
         setHasErrorInCreateVMStep(true);
-        setStepMessages({type:"update", idx: msg.step, value: msg.error});
+        setStepMessages({type:"update", idx: msg.data.step, value: msg.error});
       } else {
         // step in msg means the previously completed step, so we +1 to advance 
-        setCurrentCreateVMStep(msg.step+1)
+        setCurrentCreateVMStep(msg.data.step+1)
         let diff = Math.round(new Date().getTime() / 1000 - stepStartTime) + 1
         let time_cost = Math.round(diff/ 60) + 'm ' + diff % 3 + 's' 
-        setStepMessages({type:"update", idx: msg.step, value: time_cost });
-        console.log('step_message',stepStartTime,{type:"update", idx: msg.step, value: time_cost });
+        setStepMessages({type:"update", idx: msg.data.step, value: time_cost });
+        console.log('step_message',stepStartTime,{type:"update", idx: msg.data.step, value: time_cost });
         setStepStartTime(new Date().getTime() / 1000);
   
-        if (msg.step + 1 === 3) {
+        if (msg.data.step + 1 === 3) {
           setStepMessages({type:"update", idx: 3, value: "Depends on the size of images, this may take 2-3 minutes..." });
         }
       }
@@ -157,7 +158,7 @@ function NewVMForm(props) {
 	const submitForm = useCallback((values) => {
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({
-        type: 'create',
+        type: 1,
         data: values
       }));
     } else {
