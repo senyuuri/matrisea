@@ -1,6 +1,6 @@
 import React, {useEffect} from 'react';
 import { Route, Switch, useLocation } from 'react-router-dom'
-import { Layout } from 'antd';
+import { Layout, message } from 'antd';
 import { WsContext } from './Context';
 
 import DeviceList from "./DeviceList"
@@ -14,15 +14,26 @@ const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT
 function App() {
   const location = useLocation()
   const [ws, setWs] = React.useState();
-  
-  useEffect(() => {
+
+  const connectWs = () => {
     const ws = new WebSocket(WS_ENDPOINT);
     ws.onopen = () => {
       console.log("ws opened");
+      message.success("Connected to server", 3)
     };
-    ws.onclose = (e) => console.log("ws closed", e);
-    ws.onerror = (e) => console.log("ws error", e);
+    ws.onclose = (e) => {
+      console.log("ws closed. reconnect after 3s", e);
+      message.error("Connection lost. Retry after 5s", 5);
+      setTimeout(function() {
+        connectWs();
+      }, 5000);  
+    }
+    // ws.onerror = (e) => console.log("ws error", e);
     setWs(ws);
+  }
+  
+  useEffect(() => {
+    connectWs()
   }, []);
 
   return (

@@ -46,7 +46,6 @@ function NewVMForm(props) {
   ]
 
   const handleWSMessage = useCallback((e) => {
-    console.log(e)
     var msg = JSON.parse(e.data);
     // type 1: WS_TYPE_CREATE_VM
     if (msg.type === 1){
