@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -310,6 +311,16 @@ func (v *VMM) VMLoadFile(containerName string, srcPath string) error {
 	return v.containerCopyFile(srcPath, containerName, HomeDir)
 }
 
+func (v *VMM) VMUnzipImage(containerName string, imageFile string) error {
+	match, _ := regexp.MatchString("^[-a-zA-z0-9]+\\.zip$", imageFile)
+	if !match {
+		return &VMMError{"Failed to unzip due to invalid zip filename \"" + imageFile + "\""}
+	}
+	log.Printf("Unzip %s in container %s at %s", imageFile, containerName, HomeDir)
+	_, err := v.ContainerExec(containerName, "unzip "+HomeDir+" "+imageFile, "vsoc-01")
+	return err
+}
+
 func (v *VMM) VMRemove(containerName string) error {
 	containerID, err := v.getContainerIDByName(containerName)
 	if err != nil {
@@ -517,8 +528,7 @@ func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath
 //  - this is a synchronous operation;
 //  - cmd stdin is closed.
 func (v *VMM) ContainerExec(containerName string, cmd string, user string) (ExecResult, error) {
-	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
-	start := time.Now()
+	// start := time.Now()
 	ctx := context.Background()
 	// prepare exec
 	execConfig := types.ExecConfig{
@@ -567,11 +577,14 @@ func (v *VMM) ContainerExec(containerName string, cmd string, user string) (Exec
 		return ExecResult{}, err
 	}
 
-	elapsed := time.Since(start)
-	log.Printf("  ExitCode: %d\n", iresp.ExitCode)
-	log.Printf("  stdout: %s\n", outBuf.String())
-	log.Printf("  stderr: %s\n", errBuf.String())
-	log.Printf("  ContainerExec completed in %s\n", elapsed)
+	// elapsed := time.Since(start)
+	// if iresp.ExitCode != 0 {
+	// 	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
+	// 	log.Printf("  ExitCode: %d\n", iresp.ExitCode)
+	// 	log.Printf("  stdout: %s\n", outBuf.String())
+	// 	log.Printf("  stderr: %s\n", errBuf.String())
+	// 	log.Printf("  ContainerExec completed in %s\n", elapsed)
+	// }
 	return ExecResult{ExitCode: iresp.ExitCode, outBuffer: &outBuf, errBuffer: &errBuf}, nil
 }
 

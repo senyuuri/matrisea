@@ -18,17 +18,17 @@ var vmName string
 func TestMain(m *testing.M) {
 	setup()
 	retCode := m.Run()
-	// shutdown()
+	// cleanup()
 	os.Exit(retCode)
 }
 
 func setup() {
 	var err error
 	vmm, err = NewVMM(
-		"/home/senyuuri/matrisea/data/",
+		"/home/senyuuri/workspace/matrisea-data",
 	)
 	if err != nil {
-		fmt.Printf("Failed to create a docker API client. Reason: %s\n", err.Error())
+		fmt.Printf("Failed to initialise VMM. Reason: %s\n", err.Error())
 		os.Exit(1)
 	}
 
@@ -51,7 +51,7 @@ func setup() {
 	}
 }
 
-func shutdown() {
+func cleanup() {
 	err := vmm.VMRemove(vmName)
 	if err != nil {
 		fmt.Printf("Failed to RemoveVM(). Reason: %s\n", err.Error())
@@ -187,7 +187,7 @@ func TestVMMIntegration(t *testing.T) {
 	if err != nil {
 		t.Error(err.Error())
 	}
-	if status != VMContainerReady {
+	if status != VMReady {
 		t.Fatalf("Incorrect VM status. Status: %d\n", status)
 	}
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -23,7 +25,7 @@ var (
 	// websocket - time allowed to read the next pong message from the peer
 	pongWait = 10 * time.Second
 	// websocket - send pings to peer with this period. Must be less than pongWait
-	pingPeriod = (pongWait * 9) / 10
+	pingPeriod = 9 * time.Second
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -33,6 +35,45 @@ var wsUpgrader = websocket.Upgrader{
 		// TODO verify origins
 		return true
 	},
+}
+
+// Wrapper for gorilla/websocket's connection handler
+// Guard ws read/write with a mutex since gorilla/websocket doesn't support
+// concurrent read/write
+type Connection struct {
+	Socket       *websocket.Conn
+	mu           sync.Mutex
+	LastResponse time.Time
+}
+
+func (c *Connection) WriteJSON(v interface{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fmt.Println("lock and writeJSON")
+	return c.Socket.WriteJSON(v)
+}
+
+func (c *Connection) WriteMessage(messageType int, data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fmt.Println("lock and writeMessage")
+	return c.Socket.WriteMessage(messageType, data)
+}
+
+func (c *Connection) ReadMessage() (messageType int, p []byte, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Socket.ReadMessage()
+}
+
+func (c *Connection) SetPongHandler() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Socket.SetPongHandler(func(msg string) error {
+		log.Println("handle Pong - Last resp", c.LastResponse, time.Since(c.LastResponse))
+		c.LastResponse = time.Now()
+		return nil
+	})
 }
 
 // VM creation steps, used by wsCreateVM()
@@ -132,22 +173,21 @@ func main() {
 // Send ping/pong message to keep websocket alive.
 // As per RFC, ping is sent by the server and the browser (not client code) should return pong.
 // Note that ping/pong message won't show up in Chrome devtools
-func keepAlive(c *websocket.Conn, timeout time.Duration) {
-	lastResponse := time.Now()
-	c.SetPongHandler(func(msg string) error {
-		lastResponse = time.Now()
-		return nil
-	})
+func keepAlive(c *Connection) {
+	c.LastResponse = time.Now()
+	c.SetPongHandler()
 
 	go func() {
 		for {
 			err := c.WriteMessage(websocket.PingMessage, []byte("keepalive"))
+			log.Println("ping last resp", c.LastResponse, time.Since(c.LastResponse))
 			if err != nil {
 				return
 			}
-			time.Sleep(timeout)
-			if time.Since(lastResponse) > pongWait {
-				c.Close()
+			time.Sleep(pingPeriod)
+			if time.Since(c.LastResponse) > pongWait {
+				log.Println("ping/pong timeout", time.Since(c.LastResponse))
+				c.Socket.Close()
 				return
 			}
 		}
@@ -165,12 +205,13 @@ func keepAlive(c *websocket.Conn, timeout time.Duration) {
 // - create a handler with name starts with `ws` e.g. wsXxx
 // - register the handler in wsHandler() as a switch case
 func wsHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	c, err := wsUpgrader.Upgrade(w, r, nil)
+	conn := &Connection{Socket: c}
 	if err != nil {
 		log.Printf("Failed to set websocket upgrade: %+v", err)
 		return
 	}
-	keepAlive(conn, pingPeriod)
+	keepAlive(conn)
 	for {
 		_, buf, err := conn.ReadMessage()
 		if err != nil {
@@ -212,7 +253,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get a list of existing VMs as long as there's a container for it, regardless of the container status
 // TODO get crosvm process status in running containers
-func wsListVM(c *websocket.Conn) {
+func wsListVM(c *Connection) {
 	vmList, err := v.VMList()
 	if err != nil {
 		c.WriteJSON(&WebSocketResponse{
@@ -234,7 +275,7 @@ func wsListVM(c *websocket.Conn) {
 
 // Create and start a new VM in multiple steps (CreateVMStep).
 // Send live updates through websocket
-func wsCreateVM(c *websocket.Conn, req CreateVMRequest) {
+func wsCreateVM(c *Connection, req CreateVMRequest) {
 	// 1 - STEP_START: request received
 	wsCreateVMCompleteStep(c, STEP_START)
 
@@ -309,7 +350,7 @@ func wsCreateVM(c *websocket.Conn, req CreateVMRequest) {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
 		return
 	}
-	_, err = v.ContainerExec(containerName, "unzip /home/vsoc-01/"+req.SystemImage, "vsoc-01")
+	err = v.VMUnzipImage(containerName, "unzip /home/vsoc-01/"+req.SystemImage)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to unzip system iamge. Reason: "+err.Error())
 		return
@@ -331,7 +372,8 @@ func wsCreateVM(c *websocket.Conn, req CreateVMRequest) {
 	wsCreateVMCompleteStep(c, STEP_START_VM)
 }
 
-func wsCreateVMCompleteStep(c *websocket.Conn, step CreateVMStep) {
+func wsCreateVMCompleteStep(c *Connection, step CreateVMStep) {
+	log.Printf("CreateVM done step %d", step)
 	err := c.WriteJSON(&WebSocketResponse{
 		Type: WS_TYPE_CREATE_VM,
 		Data: &CreateVMResponse{
@@ -343,7 +385,8 @@ func wsCreateVMCompleteStep(c *websocket.Conn, step CreateVMStep) {
 	}
 }
 
-func wsCreateVMFailStep(c *websocket.Conn, step CreateVMStep, errorMsg string) {
+func wsCreateVMFailStep(c *Connection, step CreateVMStep, errorMsg string) {
+	log.Printf("CreateVM failed at step %d due to %s", step, errorMsg)
 	err := c.WriteJSON(&WebSocketResponse{
 		Type: WS_TYPE_CREATE_VM,
 		Data: &CreateVMResponse{
