@@ -40,84 +40,6 @@ var wsUpgrader = websocket.Upgrader{
 	},
 }
 
-// Wrapper for gorilla/websocket's connection handler
-type Connection struct {
-	conn *websocket.Conn
-	// buffered channel of outbound JSON message
-	send chan interface{}
-}
-
-// readPump pumps messages from the websocket connection to the hub.
-//
-// The application runs readPump in a per-connection goroutine. The application
-// ensures that there is at most one reader on a connection by executing all
-// reads from this goroutine.
-func (c *Connection) readPump() {
-	defer func() {
-		close(c.send)
-		c.conn.Close()
-	}()
-	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error {
-		fmt.Println("received pong")
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
-	for {
-		_, buf, err := c.conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("Failed to parse WS request. Reason: %s\n", err.Error())
-			}
-			break
-		}
-		// Handle the message in a new go routine so we won't block the readPump even if the
-		// callee's gonna take a long time.
-		// Without 'go', this function call will likely block PongHandler and cause the connection
-		// to timeout.
-		go processWSMessage(c, buf)
-	}
-}
-
-// writePump pumps messages from the buffer channel to the websocket connection.
-//
-// A goroutine running writePump is started for each connection. The
-// application ensures that there is at most one writer to a connection by
-// executing all writes from this goroutine.
-func (c *Connection) writePump() {
-	ticker := time.NewTicker(pingPeriod)
-	defer func() {
-		ticker.Stop()
-		c.conn.Close()
-	}()
-	for {
-		select {
-		case message, ok := <-c.send:
-			fmt.Println("send msg")
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				// channel is closed by readPump
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-			err := c.conn.WriteJSON(message)
-			if err != nil {
-				log.Println(err.Error())
-			}
-		case <-ticker.C:
-			// Send ping/pong message to keep websocket alive.
-			// As per RFC, ping is sent by the server and the browser (not client code) should return pong.
-			// Note that ping/pong message won't show up in Chrome devtools
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			fmt.Println("sent ping")
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return
-			}
-		}
-	}
-}
-
 // VM creation steps, used by wsCreateVM()
 type CreateVMStep int
 
@@ -237,6 +159,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		conn: wsConn,
 		send: make(chan interface{}),
 	}
+	conn.SetMessageHandler(processWSMessage)
 
 	go conn.readPump()
 	go conn.writePump()
@@ -256,7 +179,7 @@ func processWSMessage(c *Connection, buf []byte) {
 
 	switch reqType {
 	case WS_TYPE_LIST_VM:
-		log.Printf("/api/v1/ws invoke wsListVM()") // too chatty
+		// log.Printf("/api/v1/ws invoke wsListVM()") // comment out since it's too chatty
 		wsListVM(c)
 
 	case WS_TYPE_CREATE_VM:
@@ -288,7 +211,6 @@ func wsListVM(c *Connection) {
 			ErrorMsg: "Failed to retrieve VM info",
 		}
 	}
-	fmt.Println("about to send ws vmlist")
 	c.send <- &WebSocketResponse{
 		Type: WS_TYPE_LIST_VM,
 		Data: &ListVMResponse{
