@@ -312,7 +312,7 @@ func (v *VMM) VMLoadFile(containerName string, srcPath string) error {
 }
 
 func (v *VMM) VMUnzipImage(containerName string, imageFile string) error {
-	match, _ := regexp.MatchString("^[-a-zA-z0-9]+\\.zip$", imageFile)
+	match, _ := regexp.MatchString("^[_-exita-zA-z0-9]+\\.zip$", imageFile)
 	if !match {
 		return &VMMError{"Failed to unzip due to invalid zip filename \"" + imageFile + "\""}
 	}
