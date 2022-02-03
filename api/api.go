@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -22,10 +21,14 @@ import (
 var (
 	router *gin.Engine
 	v      *vmm.VMM
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
 	// websocket - time allowed to read the next pong message from the peer
 	pongWait = 10 * time.Second
 	// websocket - send pings to peer with this period. Must be less than pongWait
 	pingPeriod = 9 * time.Second
+	// message size limit for websocket
+	maxMessageSize int64 = 512
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -38,42 +41,81 @@ var wsUpgrader = websocket.Upgrader{
 }
 
 // Wrapper for gorilla/websocket's connection handler
-// Guard ws read/write with a mutex since gorilla/websocket doesn't support
-// concurrent read/write
 type Connection struct {
-	Socket       *websocket.Conn
-	mu           sync.Mutex
-	LastResponse time.Time
+	conn *websocket.Conn
+	// buffered channel of outbound JSON message
+	send chan interface{}
 }
 
-func (c *Connection) WriteJSON(v interface{}) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	fmt.Println("lock and writeJSON")
-	return c.Socket.WriteJSON(v)
-}
-
-func (c *Connection) WriteMessage(messageType int, data []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	fmt.Println("lock and writeMessage")
-	return c.Socket.WriteMessage(messageType, data)
-}
-
-func (c *Connection) ReadMessage() (messageType int, p []byte, err error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Socket.ReadMessage()
-}
-
-func (c *Connection) SetPongHandler() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.Socket.SetPongHandler(func(msg string) error {
-		log.Println("handle Pong - Last resp", c.LastResponse, time.Since(c.LastResponse))
-		c.LastResponse = time.Now()
+// readPump pumps messages from the websocket connection to the hub.
+//
+// The application runs readPump in a per-connection goroutine. The application
+// ensures that there is at most one reader on a connection by executing all
+// reads from this goroutine.
+func (c *Connection) readPump() {
+	defer func() {
+		close(c.send)
+		c.conn.Close()
+	}()
+	c.conn.SetReadLimit(maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		fmt.Println("received pong")
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
+	for {
+		_, buf, err := c.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("Failed to parse WS request. Reason: %s\n", err.Error())
+			}
+			break
+		}
+		// Handle the message in a new go routine so we won't block the readPump even if the
+		// callee's gonna take a long time.
+		// Without 'go', this function call will likely block PongHandler and cause the connection
+		// to timeout.
+		go processWSMessage(c, buf)
+	}
+}
+
+// writePump pumps messages from the buffer channel to the websocket connection.
+//
+// A goroutine running writePump is started for each connection. The
+// application ensures that there is at most one writer to a connection by
+// executing all writes from this goroutine.
+func (c *Connection) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+	for {
+		select {
+		case message, ok := <-c.send:
+			fmt.Println("send msg")
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// channel is closed by readPump
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			err := c.conn.WriteJSON(message)
+			if err != nil {
+				log.Println(err.Error())
+			}
+		case <-ticker.C:
+			// Send ping/pong message to keep websocket alive.
+			// As per RFC, ping is sent by the server and the browser (not client code) should return pong.
+			// Note that ping/pong message won't show up in Chrome devtools
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			fmt.Println("sent ping")
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
 }
 
 // VM creation steps, used by wsCreateVM()
@@ -93,6 +135,7 @@ type WsMessageType int
 const (
 	WS_TYPE_LIST_VM WsMessageType = iota
 	WS_TYPE_CREATE_VM
+	WS_TYPE_UNKNOWN
 )
 
 // Each WsMessageType should define a RequestBody struct and implement AbstractRequestBodyMethod()
@@ -170,33 +213,13 @@ func main() {
 	router.Run()
 }
 
-// Send ping/pong message to keep websocket alive.
-// As per RFC, ping is sent by the server and the browser (not client code) should return pong.
-// Note that ping/pong message won't show up in Chrome devtools
-func keepAlive(c *Connection) {
-	c.LastResponse = time.Now()
-	c.SetPongHandler()
-
-	go func() {
-		for {
-			err := c.WriteMessage(websocket.PingMessage, []byte("keepalive"))
-			log.Println("ping last resp", c.LastResponse, time.Since(c.LastResponse))
-			if err != nil {
-				return
-			}
-			time.Sleep(pingPeriod)
-			if time.Since(c.LastResponse) > pongWait {
-				log.Println("ping/pong timeout", time.Since(c.LastResponse))
-				c.Socket.Close()
-				return
-			}
-		}
-	}()
-}
-
-// Open a shared WS connection for features that require
-// - periodic query e.g. wsListVM()
+// Open a shared WS connection for features that require either
+// - periodic query e.g. wsListVM() OR
 // - live update e.g. wsCreateVM()
+//
+// As gorilla/websocket doesn't support concurrent read/write, we must start two
+// go routines that strictly isolate read/write from each other
+// See example https://github.com/gorilla/websocket/blob/master/examples/chat/client.go
 //
 // How to implementing a new WS message type xxx
 // - Define a new type in WS_TYPE_xxx in WsMessageType
@@ -205,48 +228,51 @@ func keepAlive(c *Connection) {
 // - create a handler with name starts with `ws` e.g. wsXxx
 // - register the handler in wsHandler() as a switch case
 func wsHandler(w http.ResponseWriter, r *http.Request) {
-	c, err := wsUpgrader.Upgrade(w, r, nil)
-	conn := &Connection{Socket: c}
+	wsConn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Failed to set websocket upgrade: %+v", err)
 		return
 	}
-	keepAlive(conn)
-	for {
-		_, buf, err := conn.ReadMessage()
-		if err != nil {
-			log.Printf("Failed to parse WS request. Reason: %s\n", err.Error())
-			conn.WriteMessage(websocket.TextMessage, []byte("error"+err.Error()))
-			break
-		}
+	conn := &Connection{
+		conn: wsConn,
+		send: make(chan interface{}),
+	}
 
-		var objmap map[string]json.RawMessage
-		err = json.Unmarshal(buf, &objmap)
+	go conn.readPump()
+	go conn.writePump()
+}
+
+func processWSMessage(c *Connection, buf []byte) {
+	var objmap map[string]json.RawMessage
+	err := json.Unmarshal(buf, &objmap)
+	if err != nil {
+		log.Println(err.Error())
+	}
+	var reqType WsMessageType
+	err = json.Unmarshal(objmap["type"], &reqType)
+	if err != nil {
+		log.Println(err.Error())
+	}
+
+	switch reqType {
+	case WS_TYPE_LIST_VM:
+		log.Printf("/api/v1/ws invoke wsListVM()") // too chatty
+		wsListVM(c)
+
+	case WS_TYPE_CREATE_VM:
+		log.Printf("/api/v1/ws invoke wsCreateVM()")
+		var req CreateVMRequest
+		err = json.Unmarshal(objmap["data"], &req)
 		if err != nil {
 			log.Println(err.Error())
 		}
-		var reqType WsMessageType
-		err = json.Unmarshal(objmap["type"], &reqType)
-		if err != nil {
-			log.Println(err.Error())
-		}
+		wsCreateVM(c, req)
 
-		switch reqType {
-		case WS_TYPE_LIST_VM:
-			//log.Printf("/api/v1/ws invoke wsListVM()")  // too chatty
-			wsListVM(conn)
-
-		case WS_TYPE_CREATE_VM:
-			log.Printf("/api/v1/ws invoke wsCreateVM()")
-			var req CreateVMRequest
-			err = json.Unmarshal(objmap["data"], &req)
-			if err != nil {
-				log.Println(err.Error())
-			}
-			wsCreateVM(conn, req)
-
-		default:
-			conn.WriteMessage(websocket.TextMessage, []byte("unknown_type"))
+	default:
+		c.send <- &WebSocketResponse{
+			Type:     WS_TYPE_UNKNOWN,
+			HasError: true,
+			ErrorMsg: fmt.Sprintf("Unknown websocket message type %d", reqType),
 		}
 	}
 }
@@ -256,20 +282,18 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 func wsListVM(c *Connection) {
 	vmList, err := v.VMList()
 	if err != nil {
-		c.WriteJSON(&WebSocketResponse{
+		c.send <- &WebSocketResponse{
 			Type:     WS_TYPE_LIST_VM,
 			HasError: true,
 			ErrorMsg: "Failed to retrieve VM info",
-		})
+		}
 	}
-	err = c.WriteJSON(&WebSocketResponse{
+	fmt.Println("about to send ws vmlist")
+	c.send <- &WebSocketResponse{
 		Type: WS_TYPE_LIST_VM,
 		Data: &ListVMResponse{
 			VMs: vmList,
 		},
-	})
-	if err != nil {
-		log.Printf("Failed to send WS request. Reason: %s\n", err.Error())
 	}
 }
 
@@ -374,29 +398,23 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 
 func wsCreateVMCompleteStep(c *Connection, step CreateVMStep) {
 	log.Printf("CreateVM done step %d", step)
-	err := c.WriteJSON(&WebSocketResponse{
+	c.send <- &WebSocketResponse{
 		Type: WS_TYPE_CREATE_VM,
 		Data: &CreateVMResponse{
 			Step: step,
 		},
-	})
-	if err != nil {
-		log.Printf("Failed to send WS request. Reason: %s\n", err.Error())
 	}
 }
 
 func wsCreateVMFailStep(c *Connection, step CreateVMStep, errorMsg string) {
 	log.Printf("CreateVM failed at step %d due to %s", step, errorMsg)
-	err := c.WriteJSON(&WebSocketResponse{
+	c.send <- &WebSocketResponse{
 		Type: WS_TYPE_CREATE_VM,
 		Data: &CreateVMResponse{
 			Step: step,
 		},
 		HasError: true,
 		ErrorMsg: errorMsg,
-	})
-	if err != nil {
-		log.Printf("Failed to send WS response. Reason: %s\n", err.Error())
 	}
 }
 
