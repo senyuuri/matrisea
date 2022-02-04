@@ -5,16 +5,16 @@ import { Link } from 'react-router-dom';
 
 const columns = [
     {
-      title: 'ID',
+      title: 'Container ID',
       dataIndex: 'id',
     },
     {
-      title: 'Name',
+      title: 'Device Name',
       dataIndex: 'name',
     },
     {
-      title: 'Device',
-      dataIndex: "device",
+      title: 'LAN IP',
+      dataIndex: "ip",
     },
     {
       title: 'Created At',
