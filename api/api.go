@@ -296,7 +296,7 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
 		return
 	}
-	err = v.VMUnzipImage(containerName, "unzip /home/vsoc-01/"+req.SystemImage)
+	err = v.VMUnzipImage(containerName, req.SystemImage)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to unzip system iamge. Reason: "+err.Error())
 		return
