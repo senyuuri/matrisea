@@ -406,14 +406,14 @@ func terminalHandler(c *gin.Context) {
 	}
 
 	// clean up after quit
-	defer hijackedResp.Close()
 	defer func() {
 		hijackedResp.Conn.Write([]byte("exit\r"))
 	}()
+	defer hijackedResp.Close()
 
 	// forward read/write to websocket
 	go wsWriterCopy(conn, hijackedResp.Conn)
-	go wsReaderCopy(conn, hijackedResp.Conn)
+	wsReaderCopy(conn, hijackedResp.Conn)
 }
 
 func getSystemImageList(c *gin.Context) {

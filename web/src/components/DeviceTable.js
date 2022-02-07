@@ -62,13 +62,13 @@ const columns = [
     },
     {
       title: 'Action',
-      dataIndex: "name",
-      render: (name) => {
-          let view_link = "/device/" + name
+      dataIndex: ["name", "cf_instance"],
+      render: (text, row) => {
+          let view_link = "/device/" + row["name"] +"/" + row["cf_instance"]
           return <Space size="middle">
             <Link to={view_link}> View </Link>
-            <Button type="link" onClick={startStopVM(name)}>Start/Stop</Button>
-            <Button type="link" onClick={deleteVM(name)}>Delete</Button>
+            <Button type="link" onClick={startStopVM(row["name"])}>Start/Stop</Button>
+            <Button type="link" onClick={deleteVM(row["name"])}>Delete</Button>
           </Space>
       },
     },

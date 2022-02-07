@@ -49,7 +49,7 @@ function App() {
         <Switch location={location}>
           <React.Fragment>
             <Route location={location} exact path={"/"} component={DeviceList} key="router-list"/>
-            <Route location={location} exact path={"/device/:device_name"} component={DeviceDetail} key="router-detail"/>
+            <Route location={location} exact path={"/device/:device_name/:cf_instance"} component={DeviceDetail} key="router-detail"/>
           </React.Fragment>
         </Switch>
       </Content>

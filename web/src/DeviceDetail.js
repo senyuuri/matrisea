@@ -7,7 +7,9 @@ import WebTerminal from './components/Terminal';
 import VNCDisplay from './components/VNCDisplay';
 
 function DeviceDetail(){
-  const { device_name } = useParams();
+  const { device_name, cf_instance } = useParams();
+  const VNC_WS_URL = "ws://"+  window.location.hostname + ":" + (parseInt(process.env.REACT_APP_VNC_PORT) + parseInt(cf_instance)-1);
+  console.log(VNC_WS_URL)
   const MyPageHeader = React.forwardRef((props, ref) => (
     <PageHeader
       innerRef={ref}
@@ -36,7 +38,7 @@ function DeviceDetail(){
         <MyPageHeader/>
         <Row gutter={16}  key="3" id="detail-flex-content">
           <Col span={6}>
-            <VNCDisplay url="ws://192.168.3.112:6081"/>
+            <VNCDisplay url={VNC_WS_URL}/>
             {/* <Spin spinning={true} tip="Waiting for device...">
               </Spin> */}
           </Col>

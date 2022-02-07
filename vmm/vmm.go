@@ -64,13 +64,14 @@ type VMMError struct {
 }
 
 type VMItem struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Created string   `json:"created"` // unix timestamp
-	Device  string   `json:"device"`
-	IP      string   `json:"ip"`
-	Status  VMStatus `json:"status"`
-	Tags    []string `json:"tags"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Created    string   `json:"created"` // unix timestamp
+	Device     string   `json:"device"`
+	IP         string   `json:"ip"`
+	Status     VMStatus `json:"status"`
+	Tags       []string `json:"tags"`
+	CFInstance string   `json:"cf_instance"`
 }
 
 type VMs []VMItem
@@ -153,17 +154,15 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 	ctx := context.Background()
 	containerName := CFPrefix + deviceName
 
-	// The index of cuttlefish VM is effectively equivalent to the number of existing cuttlefish instances
-	// and is tracked in the container labels "cf_instance".
-	//
+	// The next available index of cuttlefish VM. Always >= 1.
 	// It is important for us to keep tracking of this index as cuttlefish use it to derive different
 	// vsock ports for each instance in launch_cvd
-	cfIndex, err := v.countVM()
+	vmCount, err := v.countVM()
 	if err != nil {
 		return "", err
 	}
-
-	websockifyPort, err := nat.NewPort("tcp", strconv.Itoa(6080+cfIndex))
+	cfIndex := vmCount + 1
+	websockifyPort, err := nat.NewPort("tcp", strconv.Itoa(6080+cfIndex-1))
 	if err != nil {
 		return "", err
 	}
@@ -205,7 +204,7 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 				{
 					// expose websockify port
 					HostIP:   "0.0.0.0",
-					HostPort: strconv.Itoa(6080 + cfIndex),
+					HostPort: strconv.Itoa(6080 + cfIndex - 1),
 				},
 			},
 		},
@@ -226,7 +225,7 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 	if err := v.Client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return "", err
 	}
-	log.Printf("Created VM %s %s\n", containerName, resp.ID)
+	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfIndex)
 
 	return containerName, nil
 }
@@ -404,13 +403,14 @@ func (v *VMM) VMList() (VMs, error) {
 		}
 
 		resp = append(resp, VMItem{
-			ID:      c.ID,
-			Name:    c.Labels["matrisea_device_name"],
-			Created: strconv.FormatInt(c.Created, 10),
-			Device:  c.Labels["matrisea_device_template"],
-			IP:      c.NetworkSettings.Networks[DefaultNetwork].IPAddress,
-			Status:  status,
-			Tags:    []string{},
+			ID:         c.ID,
+			Name:       c.Labels["matrisea_device_name"],
+			Created:    strconv.FormatInt(c.Created, 10),
+			Device:     c.Labels["matrisea_device_template"],
+			IP:         c.NetworkSettings.Networks[DefaultNetwork].IPAddress,
+			Status:     status,
+			Tags:       []string{},
+			CFInstance: c.Labels["cf_instance"],
 		})
 	}
 	return resp, nil
@@ -452,7 +452,7 @@ func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse,
 		Tty:          true,
 	})
 	if err != nil {
-		return
+		return types.HijackedResponse{}, err
 	}
 
 	hijackedResp, err := v.Client.ContainerExecAttach(ctx, ir.ID, types.ExecStartCheck{Detach: false, Tty: true})
@@ -484,8 +484,9 @@ func (v *VMM) startVNCProxy(containerName string) error {
 		return &VMMError{"Failed to get VMInstanceNumber"}
 	}
 
-	port := 6080 + cfIndex
-	resp, err = v.ContainerExec(containerName, fmt.Sprintf("websockify -D %d 127.0.0.1:6444", port), "vsoc-01")
+	vncPort := 6444 + cfIndex - 1
+	wsPort := 6080 + cfIndex - 1
+	resp, err = v.ContainerExec(containerName, fmt.Sprintf("websockify -D %d 127.0.0.1:%d --log-file websockify.log", wsPort, vncPort), "vsoc-01")
 	if err != nil {
 		return err
 	}

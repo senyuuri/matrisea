@@ -2,7 +2,6 @@ import RFB from '@novnc/novnc/core/rfb';
 import { useEffect, useRef} from 'react';
 
 function VNCDisplay(props){
-
     const rfb = useRef(null);
     // When this function is called we have
     // successfully connected to a server
