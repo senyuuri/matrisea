@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 )
 
 // for DefaultNetwork: although the ideal design is to setup a new bridge network so as
@@ -152,7 +153,17 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 	ctx := context.Background()
 	containerName := CFPrefix + getRandomSequence(6)
 
-	vmCount, err := v.countVM()
+	// The index of cuttlefish VM is effectively equivalent to the number of existing cuttlefish instances
+	// and is tracked in the container labels "cf_instance".
+	//
+	// It is important for us to keep tracking of this index as cuttlefish use it to derive different
+	// vsock ports for each instance in launch_cvd
+	cfIndex, err := v.countVM()
+	if err != nil {
+		return "", err
+	}
+
+	websockifyPort, err := nat.NewPort("tcp", strconv.Itoa(6080+cfIndex))
 	if err != nil {
 		return "", err
 	}
@@ -161,7 +172,7 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":     strconv.Itoa(vmCount),
+			"cf_instance":     strconv.Itoa(cfIndex),
 			"n_cf_instances":  "1",
 			"vsock_guest_cid": "true",
 			"matrisea_device": deviceName,
@@ -169,10 +180,9 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 		Env: []string{
 			"HOME=" + HomeDir,
 		},
-		// TODO disable VNC port binding in production
-		// ExposedPorts: nat.PortSet{
-		// 	"6444/tcp": struct{}{},
-		// },
+		ExposedPorts: nat.PortSet{
+			websockifyPort: struct{}{},
+		},
 	}
 
 	imageDir := path.Join(v.DevicesDir, deviceName)
@@ -190,15 +200,15 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 				ReadOnly: false,
 			},
 		},
-		// TODO disable VNC port binding in production
-		// PortBindings: nat.PortMap{
-		// 	"6444/tcp": []nat.PortBinding{
-		// 		{
-		// 			HostIP:   "0.0.0.0",
-		// 			HostPort: "6444",
-		// 		},
-		// 	},
-		// },
+		PortBindings: nat.PortMap{
+			websockifyPort: []nat.PortBinding{
+				{
+					// expose websockify port
+					HostIP:   "0.0.0.0",
+					HostPort: strconv.Itoa(6080 + cfIndex),
+				},
+			},
+		},
 	}
 
 	// attach the container to the default bridge
@@ -469,7 +479,13 @@ func (v *VMM) startVNCProxy(containerName string) error {
 	if resp.ExitCode != 0 {
 		return &VMMError{"Failed to install websockify"}
 	}
-	resp, err = v.ContainerExec(containerName, "websockify -D 6080 127.0.0.1:6444", "vsoc-01")
+	cfIndex, err := v.getVMInstanceNum(containerName)
+	if err != nil {
+		return &VMMError{"Failed to get VMInstanceNumber"}
+	}
+
+	port := 6080 + cfIndex
+	resp, err = v.ContainerExec(containerName, fmt.Sprintf("websockify -D %d 127.0.0.1:6444", port), "vsoc-01")
 	if err != nil {
 		return err
 	}
