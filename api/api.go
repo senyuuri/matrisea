@@ -412,10 +412,8 @@ func terminalHandler(c *gin.Context) {
 	}()
 
 	// forward read/write to websocket
-	go func() {
-		wsWriterCopy(hijackedResp.Conn, conn)
-	}()
-	wsReaderCopy(conn, hijackedResp.Conn)
+	go wsWriterCopy(conn, hijackedResp.Conn)
+	go wsReaderCopy(conn, hijackedResp.Conn)
 }
 
 func getSystemImageList(c *gin.Context) {
@@ -489,7 +487,7 @@ func uploadFile(c *gin.Context) {
 }
 
 // write terminal output to front end
-func wsWriterCopy(reader io.Reader, writer *websocket.Conn) {
+func wsWriterCopy(writer *websocket.Conn, reader io.Reader) {
 	buf := make([]byte, 8192)
 	for {
 		nr, err := reader.Read(buf)
