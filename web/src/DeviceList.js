@@ -44,9 +44,11 @@ function DeviceList(){
 
   useEffect(() => {
     if(ws){
+      requestDeviceListUpdate()
       const interval = setInterval(() =>{
         requestDeviceListUpdate();
       }, 5000);
+      
       ws.addEventListener("open", requestDeviceListUpdate)
       ws.addEventListener("message", handleDeviceListUpdate);
       return () => {

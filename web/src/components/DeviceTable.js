@@ -84,7 +84,12 @@ function deleteVM() {
 
 function DeviceTable(props) {
   return (
-      <Table style={{ paddingTop: '10px' }} columns={columns} dataSource={props.data} />
+    <Table 
+      style={{ paddingTop: '10px' }} 
+      columns={columns} 
+      dataSource={props.data} 
+      loading={props.data.length === 0 ? true: false}
+    />
   )
 }
 
