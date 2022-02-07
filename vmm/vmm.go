@@ -152,14 +152,18 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 	ctx := context.Background()
 	containerName := CFPrefix + getRandomSequence(6)
 
+	vmCount, err := v.countVM()
+	if err != nil {
+		return "", err
+	}
 	// create a new VM
 	containerConfig := &container.Config{
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":     "0",
+			"cf_instance":     strconv.Itoa(vmCount),
 			"n_cf_instances":  "1",
-			"vsock_guest_cid": "false",
+			"vsock_guest_cid": "true",
 			"matrisea_device": deviceName,
 		},
 		Env: []string{
@@ -183,7 +187,7 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 				Type:     mount.TypeBind,
 				Source:   "/sys/fs/cgroup",
 				Target:   "/sys/fs/cgroup",
-				ReadOnly: true,
+				ReadOnly: false,
 			},
 		},
 		// TODO disable VNC port binding in production
@@ -226,6 +230,28 @@ func (v *VMM) VMStart(containerName string, options string) (execID string, err 
 	if err != nil {
 		return "", err
 	}
+	cf_instance, err := v.getVMInstanceNum(containerName)
+	if err != nil {
+		return "", err
+	}
+
+	// To show the files that define the flags, run bin/launch_cvd --help
+	//
+	// TODO add support for cvd-host_packages in Android 11 and below
+	// TODO ask user to choose android version when creating CVDs
+	//
+	// Both --vsock_guest_cid and --base_instance_num are required to allow running multiple CVDs in the same host.
+	// However, such flags are only included in the cvd-host_packages.tar since aosp_12_gsi. Supplying the flags
+	// to an image of Android 11 or below will result in error and cause launch_cvd to abort at the start.
+	launch_cmd := []string{
+		path.Join(HomeDir, "/bin/launch_cvd"),
+		"--nostart_webrtc",
+		"--start_vnc_server",
+		fmt.Sprintf("--base_instance_num=%d", cf_instance), //added in aosp 12 gsi
+		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2), //added in aosp 12 gsi
+		"--report_anonymous_usage_stats=y",                 //added in aosp 12 gsi
+	}
+	log.Println("VMStart cmdline: ", launch_cmd)
 
 	// start cuttlefish device
 	ctx := context.Background()
@@ -233,9 +259,10 @@ func (v *VMM) VMStart(containerName string, options string) (execID string, err 
 		User:         "vsoc-01",
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{HomeDir + "/bin/launch_cvd", "--nostart_webrtc", "--start_vnc_server"},
+		Cmd:          launch_cmd,
 		Tty:          true,
 	})
+
 	if err != nil {
 		return "", err
 	}
@@ -377,6 +404,30 @@ func (v *VMM) VMList() (VMs, error) {
 		})
 	}
 	return resp, nil
+}
+
+func (v *VMM) countVM() (int, error) {
+	cfList, err := v.listCuttlefishContainers()
+	if err != nil {
+		return -1, err
+	}
+	return len(cfList), nil
+}
+
+func (v *VMM) getVMInstanceNum(containerName string) (int, error) {
+	cid, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return -1, err
+	}
+	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
+	if err != nil {
+		return -1, err
+	}
+	num, err := strconv.Atoi(containerJSON.Config.Labels["cf_instance"])
+	if err != nil {
+		return -1, err
+	}
+	return num, nil
 }
 
 // returns a bi-directional stream for the frontend to interact with a container's shell
