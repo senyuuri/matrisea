@@ -50,7 +50,7 @@ fi
 sudo modprobe vhost_vsock vhost_net
 
 echo "[Install] Install system-level tools and dependencies..."
-sudo apt install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper=12.\* config-package-dev init-system-helpers=1.5\*
+sudo apt install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper-compat golang config-package-dev init-system-helpers=1.5\*
 
 echo "[Install] Downloading android-cuttlefish and adeb..."
 mkdir -p deps; cd deps; 
@@ -66,7 +66,8 @@ fi
 echo "[Install] Building and installing cuttlefish debian package..."
 cd android-cuttlefish 
 debuild -i -us -uc -b
-sudo dpkg -i ../cuttlefish-common_*_amd64.deb || sudo apt install -yfq
+sudo dpkg -i ../cuttlefish-common_*_*64.deb || sudo apt install -f
+sudo usermod -aG kvm,cvdnetwork,render $USER
 
 echo "[Install] Building cuttlefish VM image..."
 ./build.sh --verbose
