@@ -61,14 +61,16 @@ const columns = [
       }
     },
     {
-        title: 'Action',
-        render: (text, record) => (
-            <Space size="middle">
-                <Link to="/device/aaa">View</Link>
-                <Button type="link" onClick={startStopVM()}>Start/Stop</Button>
-                <Button type="link" onClick={deleteVM()}>Delete</Button>
-            </Space>
-        ),
+      title: 'Action',
+      dataIndex: "name",
+      render: (name) => {
+          let view_link = "/device/" + name
+          return <Space size="middle">
+            <Link to={view_link}> View </Link>
+            <Button type="link" onClick={startStopVM(name)}>Start/Stop</Button>
+            <Button type="link" onClick={deleteVM(name)}>Delete</Button>
+          </Space>
+      },
     },
 ];
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useParams } from "react-router-dom";
 import { Menu, Breadcrumb, Row, Col, Button, PageHeader } from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
@@ -6,13 +7,14 @@ import WebTerminal from './components/Terminal';
 import VNCDisplay from './components/VNCDisplay';
 
 function DeviceDetail(){
+  const { device_name } = useParams();
   const MyPageHeader = React.forwardRef((props, ref) => (
     <PageHeader
       innerRef={ref}
       key="2"
       ghost={false}
       onBack={() => window.history.back()}
-      title="matrisea-aaa-bbb"
+      title={device_name}
       subTitle="aosp-aaaaaaaaaaaa / custom-kernel"
       extra={[
         <Button icon={<PoweroffOutlined />} key="power-btn">Power</Button>
@@ -34,7 +36,7 @@ function DeviceDetail(){
         <MyPageHeader/>
         <Row gutter={16}  key="3" id="detail-flex-content">
           <Col span={6}>
-            <VNCDisplay url="ws://192.168.3.112:10000"/>
+            <VNCDisplay url="ws://192.168.3.112:6081"/>
             {/* <Spin spinning={true} tip="Waiting for device...">
               </Spin> */}
           </Col>
@@ -50,7 +52,7 @@ function DeviceDetail(){
                 Settings
               </Menu.Item>
             </Menu>
-            <WebTerminal/>
+            <WebTerminal deviceName={device_name}/>
           </Col>
         </Row>
       </QueueAnim>
