@@ -151,7 +151,7 @@ func NewVMM(dataDir string) (*VMM, error) {
 // assume docker's default network exist on the host
 func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 	ctx := context.Background()
-	containerName := CFPrefix + getRandomSequence(6)
+	containerName := CFPrefix + deviceName
 
 	// The index of cuttlefish VM is effectively equivalent to the number of existing cuttlefish instances
 	// and is tracked in the container labels "cf_instance".
@@ -172,10 +172,10 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":     strconv.Itoa(cfIndex),
-			"n_cf_instances":  "1",
-			"vsock_guest_cid": "true",
-			"matrisea_device": deviceName,
+			"cf_instance":          strconv.Itoa(cfIndex),
+			"n_cf_instances":       "1",
+			"vsock_guest_cid":      "true",
+			"matrisea_device_name": deviceName,
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -185,7 +185,7 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 		},
 	}
 
-	imageDir := path.Join(v.DevicesDir, deviceName)
+	imageDir := path.Join(v.DevicesDir, containerName)
 	if _, err := os.Stat(imageDir); os.IsNotExist(err) {
 		return "", err
 	}
@@ -405,7 +405,7 @@ func (v *VMM) VMList() (VMs, error) {
 
 		resp = append(resp, VMItem{
 			ID:      c.ID,
-			Name:    containerName,
+			Name:    c.Labels["matrisea_device_name"],
 			Created: strconv.FormatInt(c.Created, 10),
 			Device:  c.Labels["matrisea_device_template"],
 			IP:      c.NetworkSettings.Networks[DefaultNetwork].IPAddress,

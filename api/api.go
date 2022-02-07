@@ -6,9 +6,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,8 +20,9 @@ import (
 )
 
 var (
-	router *gin.Engine
-	v      *vmm.VMM
+	router   *gin.Engine
+	v        *vmm.VMM
+	CFPrefix = "matrisea-cvd-" // container name prefix
 	// Time allowed to write a message to the peer.
 	writeWait = 10 * time.Second
 	// websocket - time allowed to read the next pong message from the peer
@@ -253,14 +255,25 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 		}
 	}
 	// create device folder
-	if err := os.Mkdir(v.DevicesDir+"/"+req.DeviceName, 0755); err != nil {
+	folderName := CFPrefix + req.DeviceName
+	if err := os.Mkdir(path.Join(v.DevicesDir+"/"+folderName), 0755); err != nil {
 		wsCreateVMFailStep(c, STEP_PREFLIGHT_CHECKS, "Failed to create the device folder. Reason: "+err.Error())
 		return
 	}
 	wsCreateVMCompleteStep(c, STEP_PREFLIGHT_CHECKS)
 
 	// 3 - STEP_CREATE_VM
+	match, _ := regexp.MatchString("^[a-zA-z0-9-_]+$", req.DeviceName)
+	if !match {
+		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: device name contains characters other than alphanumerics and _-")
+		return
+	}
+	if len(req.DeviceName) > 20 {
+		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: device name exceed 20 characters")
+		return
+	}
 	containerName, err := v.VMCreate(req.DeviceName)
+
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: "+err.Error())
 		return
@@ -502,27 +515,6 @@ func wsReaderCopy(reader *websocket.Conn, writer io.Writer) {
 		if messageType == websocket.TextMessage {
 			writer.Write(p)
 		}
-	}
-}
-
-// TODO
-// - get VM name from the request
-// - get VM internal IP
-// - assign a port from range 10000-10100
-// - start a wsproxy
-// - set a timeout timer and shutdown the port if inactive for x min
-// - authentication?
-//
-// https://stackoverflow.com/questions/39320025/how-to-stop-http-listenandserve/42533360
-func startVNCTunnel() {
-	u, err := url.Parse("ws://172.17.0.2:6080")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	err = http.ListenAndServe(":10000", NewProxy(u))
-	if err != nil {
-		log.Fatalln(err)
 	}
 }
 
