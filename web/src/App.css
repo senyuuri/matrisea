@@ -43,6 +43,11 @@
 
 .ant-page-header {
   padding-left: 0;
+  padding-right: 0;
+}
+
+.ant-page-header-heading-sub-title {
+  padding-top: 4px;
 }
 
 #vnc-canvas {
@@ -50,11 +55,11 @@
 }
 
 #detail-flex-content {
-  min-height: 500px;
+  min-height: 700px;
 }
 
 .xterm-screen {
-  min-height: 500px;
+  min-height: 700px;
 }
 
 #vm-status-error-tooltip {

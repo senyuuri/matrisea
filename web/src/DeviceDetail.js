@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from "react-router-dom";
-import { Menu, Breadcrumb, Row, Col, Button, PageHeader } from 'antd';
+import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message} from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
 import WebTerminal from './components/Terminal';
 import VNCDisplay from './components/VNCDisplay';
+import axios from 'axios';
 
 function DeviceDetail(){
   const { device_name, cf_instance } = useParams();
+  const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
   const VNC_WS_URL = "ws://"+  window.location.hostname + ":" + (parseInt(process.env.REACT_APP_VNC_PORT) + parseInt(cf_instance)-1);
-  console.log(VNC_WS_URL)
+  const [deviceDetail, setDeviceDetail] = useState({});
+
   const MyPageHeader = React.forwardRef((props, ref) => (
     <PageHeader
       innerRef={ref}
@@ -17,13 +20,28 @@ function DeviceDetail(){
       ghost={false}
       onBack={() => window.history.back()}
       title={device_name}
-      subTitle="aosp-aaaaaaaaaaaa / custom-kernel"
-      extra={[
+      subTitle={Object.keys(deviceDetail).length === 0 ? "" : "2 vCPU / 4 GB RAM / " + deviceDetail['ip'] + " / Container ID " + deviceDetail['id'].slice(0,8)}
+      extra={<>
+        <Button icon={<PoweroffOutlined />} key="install-btn">Install APK</Button>
         <Button icon={<PoweroffOutlined />} key="power-btn">Power</Button>
-      ]}
+      </>}
       {...props}
     />
   ));
+
+  useEffect(() => {
+    var url = API_ENDPOINT + '/vms/' + device_name
+    axios.get(url)
+    .then(function (response) {
+      console.log(response)
+      setDeviceDetail(response.data)
+    })
+    .catch(function (error) {
+      if (error.response) {
+        message.error("Failed to get device " + device_name + "status due to " + error.response.status + " - " + error.response.data['error']);
+      }
+    })
+  }, [API_ENDPOINT, device_name])
   
   return (
     <div className="site-layout-content">
@@ -32,7 +50,7 @@ function DeviceDetail(){
           <Breadcrumb>
             <Breadcrumb.Item>Home</Breadcrumb.Item>
             <Breadcrumb.Item>Device</Breadcrumb.Item>
-            <Breadcrumb.Item>matrisea-aaa-bbb</Breadcrumb.Item>
+            <Breadcrumb.Item>{device_name}</Breadcrumb.Item>
           </Breadcrumb>
         </Row>
         <MyPageHeader/>
@@ -42,7 +60,7 @@ function DeviceDetail(){
             {/* <Spin spinning={true} tip="Waiting for device...">
               </Spin> */}
           </Col>
-          <Col span={16}>
+          <Col span={18}>
             <Menu mode="horizontal" selectedKeys="terminal">
               <Menu.Item key="terminal" icon={<InteractionOutlined />}>
                 Terminal

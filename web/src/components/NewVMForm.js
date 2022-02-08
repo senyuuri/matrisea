@@ -3,12 +3,12 @@ import React, { useState, useCallback, useEffect, useReducer} from 'react';
 import { PlusOutlined, CheckOutlined, LoadingOutlined} from '@ant-design/icons';
 import { WsContext } from '../Context';
 import FileModalForm from './FileModalForm';
+import axios from 'axios';
 
 const { Option } = Select;
 const { Step } = Steps;
 
 function NewVMForm(props) {
-  const axios = require('axios');
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
   const ws = React.useContext(WsContext);
   

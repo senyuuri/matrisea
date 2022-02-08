@@ -6,7 +6,7 @@ function VNCDisplay(props){
     // When this function is called we have
     // successfully connected to a server
     function connectedToServer(e) {
-        console.log("Connected");
+        console.log("VNC connected");
     }
 
     // This function is called when we are disconnected

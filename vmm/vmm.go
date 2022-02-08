@@ -72,6 +72,8 @@ type VMItem struct {
 	Status     VMStatus `json:"status"`
 	Tags       []string `json:"tags"`
 	CFInstance string   `json:"cf_instance"`
+	CPU        int      `json:"cpu"`
+	RAM        int      `json:"ram"`
 }
 
 type VMs []VMItem

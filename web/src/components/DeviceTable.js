@@ -1,11 +1,9 @@
 import { Table, Tag, Space, Badge, Button, Tooltip, message } from 'antd';
 import { QuestionCircleOutlined } from '@ant-design/icons';
-
 import { Link } from 'react-router-dom';
-
+import axios from 'axios';
 
 function DeviceTable(props) {
-  const axios = require('axios');
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
 
   const columns = [

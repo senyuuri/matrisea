@@ -126,6 +126,7 @@ func main() {
 		v1.GET("/ws", func(c *gin.Context) { // websocket
 			wsHandler(c.Writer, c.Request)
 		})
+		v1.GET("/vms/:name", getVM)
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.DELETE("/vms/:name", removeVM)
@@ -351,6 +352,22 @@ func wsCreateVMFailStep(c *Connection, step CreateVMStep, errorMsg string) {
 		HasError: true,
 		ErrorMsg: errorMsg,
 	}
+}
+
+func getVM(c *gin.Context) {
+	name := c.Param("name")
+	vmList, err := v.VMList()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	for _, vm := range vmList {
+		if vm.Name == name {
+			c.JSON(200, vm)
+			return
+		}
+	}
+	c.JSON(500, gin.H{"error": "VM not found"})
 }
 
 func startVM(c *gin.Context) {
