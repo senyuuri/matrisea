@@ -10,6 +10,7 @@ function DeviceList(){
 
   const [formVisible, setFormVisible] = useState(false);
   const [deviceList, setDeviceList] = useState([]);
+  const [isTableLoading, setIsTableLoading] = useState(true);
 
   function handleFormClose() {
     setFormVisible(false);
@@ -38,6 +39,7 @@ function DeviceList(){
           vm['created'] = date.toLocaleString('en-US', { timeZone: 'Asia/Singapore' });
         });
         setDeviceList(msg.data.vms);
+        setIsTableLoading(false);
       }
     }
   };
@@ -69,7 +71,7 @@ function DeviceList(){
             </Breadcrumb>
             <Button onClick={() => {setFormVisible(true);}}>Create Virtual Device</Button>
           </Row>
-          <DeviceTable data={deviceList} key="2"/>
+          <DeviceTable data={deviceList} isLoading={isTableLoading} key="2"/>
         </div>
         <NewVMForm visible={formVisible} onChange={handleFormClose}/>
   </div>

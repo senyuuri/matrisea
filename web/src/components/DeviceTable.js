@@ -141,7 +141,7 @@ function DeviceTable(props) {
       style={{ paddingTop: '10px' }} 
       columns={columns} 
       dataSource={props.data} 
-      loading={props.data.length === 0 ? true: false}
+      loading={props.isLoading}
     />
   )
 }
