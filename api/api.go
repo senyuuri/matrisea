@@ -323,7 +323,7 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	wsCreateVMCompleteStep(c, STEP_LOAD_IMAGES)
 
 	// 5 - STEP_START_VM
-	_, err = v.VMStart(containerName, "")
+	err = v.VMStart(containerName, false, "")
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_START_VM, "VM failed to start. Reason: "+err.Error())
 		return
@@ -354,9 +354,9 @@ func wsCreateVMFailStep(c *Connection, step CreateVMStep, errorMsg string) {
 }
 
 func startVM(c *gin.Context) {
-	name := c.Param("name")
+	name := CFPrefix + c.Param("name")
 	// TODO add default options
-	if _, err := v.VMStart(name, ""); err != nil {
+	if err := v.VMStart(name, true, ""); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -364,7 +364,7 @@ func startVM(c *gin.Context) {
 }
 
 func stopVM(c *gin.Context) {
-	name := c.Param("name")
+	name := CFPrefix + c.Param("name")
 	if err := v.VMStop(name); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -373,7 +373,7 @@ func stopVM(c *gin.Context) {
 }
 
 func removeVM(c *gin.Context) {
-	name := c.Param("name")
+	name := CFPrefix + c.Param("name")
 	if err := v.VMRemove(name); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

@@ -225,23 +225,24 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 	if err := v.Client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return "", err
 	}
+	// start auxillary deamons
+	err = v.startVNCProxy(containerName)
+	if err != nil {
+		return "", err
+	}
+
 	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfIndex)
 
 	return containerName, nil
 }
 
 // run launch_cvd inside of a running container
-// notice VMStart() doesn't check for succeesful VM boot as it could take a long time
-func (v *VMM) VMStart(containerName string, options string) (execID string, err error) {
+// notice VMStart() doesn't guarentee succeesful VM boot if the boot process takes more than timeout
+func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err error) {
 	start := time.Now()
-	// start auxillary deamons
-	err = v.startVNCProxy(containerName)
-	if err != nil {
-		return "", err
-	}
 	cf_instance, err := v.getVMInstanceNum(containerName)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	// To show the files that define the flags, run bin/launch_cvd --help
@@ -273,41 +274,47 @@ func (v *VMM) VMStart(containerName string, options string) (execID string, err 
 	})
 
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	// cmd only get executed after ContainerExecAttach
 	aresp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer aresp.Close()
 
-	outputDone := make(chan int)
+	// If isAsync is ture, we wait for the VM to boot, read stdout continuously, and return success only until we see
+	// VIRTUAL_DEVICE_BOOT_COMPLETED in the log. This mode is only used at VM creation time to ensure the new VM can
+	// boot successfuly for the first time.
+	if !isAsync {
+		outputDone := make(chan int)
 
-	go func() {
-		scanner := bufio.NewScanner(aresp.Conn)
-		for scanner.Scan() {
-			line := scanner.Text()
-			fmt.Println(line)
-			if strings.Contains(line, "VIRTUAL_DEVICE_BOOT_COMPLETED") {
-				outputDone <- 1
+		go func() {
+			scanner := bufio.NewScanner(aresp.Conn)
+			for scanner.Scan() {
+				line := scanner.Text()
+				fmt.Println(line)
+				if strings.Contains(line, "VIRTUAL_DEVICE_BOOT_COMPLETED") {
+					outputDone <- 1
+				}
 			}
-		}
-		outputDone <- 0
-	}()
+			outputDone <- 0
+		}()
 
-	select {
-	case done := <-outputDone:
-		if done == 1 {
-			elapsed := time.Since(start)
-			log.Printf("VMStart successfully in %s\n", elapsed)
-			return "", nil
+		select {
+		case done := <-outputDone:
+			if done == 1 {
+				elapsed := time.Since(start)
+				log.Printf("VMStart successfully in %s\n", elapsed)
+				return nil
+			}
+			return &VMMError{msg: "VMStart EOF while reading output"}
+		case <-time.After(TimeoutVMStart):
+			return &VMMError{msg: "VMStart timeout"}
 		}
-		return "", &VMMError{msg: "VMStart EOF while reading output"}
-	case <-time.After(TimeoutVMStart):
-		return "", &VMMError{msg: "VMStart timeout"}
 	}
+	return nil
 }
 
 // kill launch_cvd process in the container
@@ -442,7 +449,6 @@ func (v *VMM) getVMInstanceNum(containerName string) (int, error) {
 
 // returns a bi-directional stream for the frontend to interact with a container's shell
 func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
-	log.Printf("Request to attach to container terminal %s\n", containerName)
 	ctx := context.Background()
 	ir, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		AttachStdin:  true,

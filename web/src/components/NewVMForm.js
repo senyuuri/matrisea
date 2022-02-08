@@ -1,5 +1,5 @@
 import { Drawer, Form, Button, Col, Row, Input, Select, Divider, Steps, message} from 'antd';
-import React, { useState, useCallback, useEffect, useReducer, useRef} from 'react';
+import React, { useState, useCallback, useEffect, useReducer} from 'react';
 import { PlusOutlined, CheckOutlined, LoadingOutlined} from '@ant-design/icons';
 import { WsContext } from '../Context';
 import FileModalForm from './FileModalForm';
@@ -19,10 +19,7 @@ function NewVMForm(props) {
   const [isMaskClosable, setIsMaskClosable] = useState(true);
 
   // State of Global Steps
-  const [currentStep, setCurrentStep] = useState(0);
-  const [step1Visible, setStep1Visible] = useState(true);
-  const [step2Visible, setStep2Visible] = useState(false);
-  const [step3Visible, setStep3Visible] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
 
   // State of Step 1 - New VM Form
   const [systemImageButtonText, setSystemImageButtonText] = useState('Select File');
@@ -34,10 +31,10 @@ function NewVMForm(props) {
   const [fileModalVisible, setFileModalVisible] = useState(false);
   const [filePickerType, setFilePickerType] = useState('System');
   const [fileList, setFileList] = useState([]);
-  const [isSubmitButtonDisabled, setIsSubmitButtonDisabled] = useState(false);
   const [currentCreateVMStep, setCurrentCreateVMStep] = useState(0);
   const [hasErrorInCreateVMStep, setHasErrorInCreateVMStep] = useState(false);
   const [stepStartTime, setStepStartTime] = useState();
+  const [hasVMCreationSucceed, setHasVMCreationSucceed] = useState(false);
   const [stepMessages, setStepMessages] = useReducer((stepMessages, { type, idx, value }) => {
     switch (type) {
       case "update":
@@ -53,6 +50,20 @@ function NewVMForm(props) {
     "Request Submitted", "Preflight Checks", "Create VM", "Load Images", "Start VM"
   ]
 
+  // reset the form and states when the modal is closed
+  const resetForm = useCallback(() => {
+    form.resetFields();
+    setSystemImageButtonText('Select File');
+    setSystemImageIcon('PlusOutlined');
+    setCvdImageButtonText('Select File');
+    setCvdImageIcon('PlusOutlined');
+    setCurrentStep(1);
+    setCurrentCreateVMStep(0);
+    setIsMaskClosable(true);
+    setHasErrorInCreateVMStep(false);
+    setHasVMCreationSucceed(false);
+  },[form]);
+
   const handleWSMessage = useCallback((e) => {
     var msg = JSON.parse(e.data);
     // type 1: WS_TYPE_CREATE_VM
@@ -61,7 +72,7 @@ function NewVMForm(props) {
         setHasErrorInCreateVMStep(true);
         setStepMessages({type:"update", idx: msg.data.step, value: msg.error});
       } else {
-        // step in msg means the previously completed step, so we +1 to advance 
+        // step in msg means the server acknowledge that the previous step has been completed, so we +1 to advance 
         setCurrentCreateVMStep(msg.data.step+1)
         let diff = Math.round(new Date().getTime() / 1000 - stepStartTime) + 1
         let time_cost = Math.round(diff/ 60) + 'm ' + diff % 3 + 's' 
@@ -71,6 +82,9 @@ function NewVMForm(props) {
   
         if (msg.data.step + 1 === 3) {
           setStepMessages({type:"update", idx: 3, value: "Depends on the size of images, this may take 2-3 minutes..." });
+        }
+        if (msg.data.step + 1 === 4) {
+          setHasVMCreationSucceed(true);
         }
       }
     }
@@ -97,32 +111,51 @@ function NewVMForm(props) {
     setFileModalVisible(false);
   };
 
+  const handleClose = useCallback((values) => {
+		setVisible(false);
+    resetForm();
+		props.onChange();
+	}, [props, resetForm]);
+
+  // Progress form step 1 to 2
+	const submitForm = useCallback((values) => {
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({
+        type: 1,
+        data: values
+      }));
+    } else {
+      message.error('Failed to submit request due to connection lost. Please try again')
+      return
+    }
+
+		setCurrentStep(2);
+    setIsMaskClosable(false);
+    setStepStartTime(new Date().getTime() / 1000);
+	},[ws]);
+
+  // Progress form step 2 to 3
+  const viewResults = () => {
+    setCurrentStep(3);
+    setIsMaskClosable(true);
+  }
+
   const chooseSystemFile = () => {
-    var newFileList = []
-    axios.get(API_ENDPOINT + "/files/system")
-    .then(function (response) {
-      var files = response.data.files;
-      if(files != null ){
-        files.forEach(f => {
-          newFileList.push({
-            value: f, 
-            name: f
-          });
-        })
-      }
-      setFileList(newFileList);
-    })
-    .catch(function (error) {
-      console.error(error);
-      message.error("Failed to retrive image info");
-    })
+    getFileList("system")
     setFilePickerType('System');
     showFileModal();
   }
 
   const chooseCVDFile = () => {
+    getFileList("cvd")
+    setFilePickerType('CVD');
+    showFileModal();
+  }
+
+  const getFileList = (filetype) => {
+    var url = API_ENDPOINT + "/files/" + filetype
     var newFileList = []
-    axios.get(API_ENDPOINT + "/files/cvd")
+    axios.get(url)
     .then(function (response) {
       var files = response.data.files;
       if(files != null ){
@@ -139,58 +172,8 @@ function NewVMForm(props) {
       console.error(error);
       message.error("Failed to retrive image info");
     })
-    setFilePickerType('CVD');
-    showFileModal();
   }
 
-  const resetForm = useCallback(() => {
-    form.resetFields();
-    setSystemImageButtonText('Select File');
-    setSystemImageIcon('PlusOutlined');
-    setCvdImageButtonText('Select File');
-    setCvdImageIcon('PlusOutlined');
-    setCurrentStep(0);
-    setCurrentCreateVMStep(0);
-    setStep1Visible(true);
-    setStep2Visible(false);
-    setStep3Visible(false);
-    setIsMaskClosable(true);
-    setIsSubmitButtonDisabled(false);
-    setHasErrorInCreateVMStep(false);
-  },[form]);
-
-  const handleClose = useCallback((values) => {
-		setVisible(false);
-    resetForm();
-		props.onChange();
-	}, [props, resetForm]);
-
-	const submitForm = useCallback((values) => {
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({
-        type: 1,
-        data: values
-      }));
-    } else {
-      // TODO try reconnect ws
-      message.error('Disconnected from the server. Refresh and try again!')  
-    }
-    
-		setCurrentStep(1);
-    setStep1Visible(false);
-    setStep2Visible(true);
-    setStep3Visible(false);
-    setIsMaskClosable(false);
-    setIsSubmitButtonDisabled(true);
-    setStepStartTime(new Date().getTime() / 1000);
-	},[ws]);
-
-  const onDeviceCreationSuccess = () => {
-    setVisible(false);
-    resetForm();
-		props.onChange();
-  }
-  
 	return (
 		<Drawer
 			title="Create a new virtual device"
@@ -201,18 +184,27 @@ function NewVMForm(props) {
       maskClosable={isMaskClosable}
 			footer={
         <div style={{textAlign: 'right',}}>
-          <Button onClick={handleClose} style={{ marginRight: 8 }}>Cancel</Button>
-          <Button form='new-device-form' htmlType="submit" type="primary" disabled={isSubmitButtonDisabled}>Submit</Button>
+          <div id='step-1-buttons' style={{display: currentStep===1 ? 'block' : 'none'}}>
+            <Button onClick={handleClose} style={{ marginRight: 8 }}>Cancel</Button>
+            <Button form='new-device-form' htmlType="submit" type="primary">Submit</Button>
+          </div>
+          <div id='step-2-buttons' style={{display: currentStep===2 ? 'block' : 'none'}}>
+            <Button onClick={handleClose} style={{ marginRight: 8 }}>Cancel</Button>
+            <Button onClick={viewResults} disabled={!hasVMCreationSucceed}>Next</Button>
+          </div>
+          <div id='step-3-buttons' style={{display: currentStep===3 ? 'block' : 'none'}}>
+            <Button onClick={handleClose} style={{ marginRight: 8 }}>Done</Button>
+          </div>
         </div>
 			}
 		>
-      <Steps current={currentStep} size="small">
+      <Steps current={currentStep-1} size="small">
         <Step title="Configure" />
         <Step key="Initialize Device" title="Initialize Device" />
         <Step key="Done" title="Done" />
       </Steps>
       <Divider />
-      <div id='step-1-div' style={{display: step1Visible ? 'block' : 'none'}}>
+      <div id='step-1-div' style={{display: currentStep===1 ? 'block' : 'none'}}>
         <Form.Provider
           // when the file picker modal is closed submitted, the file name
           // will be synchronised to the main form
@@ -369,8 +361,8 @@ function NewVMForm(props) {
           />
         </Form.Provider>
       </div>
-      <div id='step-2-div' style={{display: step2Visible ? 'block' : 'none'}}>
-       
+
+      <div id='step-2-div' style={{display: currentStep===2 ? 'block' : 'none'}}>
         <Steps current={currentCreateVMStep} direction="vertical">
           {VMCreationSteps.map((step,idx) => (
             <Step 
@@ -382,6 +374,10 @@ function NewVMForm(props) {
             />
           ))}
         </Steps>
+      </div>
+
+      <div id='step-3-div' style={{display: currentStep===3 ? 'block' : 'none'}}>
+        <p>Success!</p>
       </div>
       
 		</Drawer>

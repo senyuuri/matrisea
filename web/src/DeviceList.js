@@ -67,7 +67,7 @@ function DeviceList(){
               <Breadcrumb.Item>Home</Breadcrumb.Item>
               <Breadcrumb.Item>Devices</Breadcrumb.Item>
             </Breadcrumb>
-            <Button onClick={() => {setFormVisible(true);}}>New Virtual Device</Button>
+            <Button onClick={() => {setFormVisible(true);}}>Create Virtual Device</Button>
           </Row>
           <DeviceTable data={deviceList} key="2"/>
         </div>
