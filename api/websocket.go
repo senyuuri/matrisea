@@ -66,7 +66,6 @@ func (c *Connection) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		close(c.send)
 		c.conn.Close()
 	}()
 	for {
