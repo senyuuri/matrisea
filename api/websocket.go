@@ -33,7 +33,6 @@ type Connection struct {
 // reads from this goroutine.
 func (c *Connection) readPump() {
 	defer func() {
-		close(c.send)
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
@@ -67,6 +66,7 @@ func (c *Connection) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
+		close(c.send)
 		c.conn.Close()
 	}()
 	for {
@@ -74,7 +74,6 @@ func (c *Connection) writePump() {
 		case message, ok := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// channel is closed by readPump
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
