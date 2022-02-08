@@ -152,7 +152,7 @@ func NewVMM(dataDir string) (*VMM, error) {
 
 // the caller is responsible for setting up device folder
 // assume docker's default network exist on the host
-func (v *VMM) VMCreate(deviceName string, cpu int, ram int) (name string, err error) {
+func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) (name string, err error) {
 	ctx := context.Background()
 	containerName := CFPrefix + deviceName
 
@@ -173,12 +173,13 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int) (name string, err er
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":          strconv.Itoa(cfIndex),
-			"n_cf_instances":       "1",
-			"vsock_guest_cid":      "true",
-			"matrisea_device_name": deviceName,
-			"matrisea_cpu":         strconv.Itoa(cpu),
-			"matrisea_ram":         strconv.Itoa(ram),
+			"cf_instance":               strconv.Itoa(cfIndex),
+			"n_cf_instances":            "1",
+			"vsock_guest_cid":           "true",
+			"matrisea_device_name":      deviceName,
+			"matrisea_cpu":              strconv.Itoa(cpu),
+			"matrisea_ram":              strconv.Itoa(ram),
+			"matrisea_tag_aosp_version": aospVersion,
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -429,6 +430,13 @@ func (v *VMM) VMList() (VMs, error) {
 		if err != nil {
 			ram = 0
 		}
+		tags := []string{}
+		for key, element := range c.Labels {
+			if strings.HasPrefix(key, "matrisea_tag_") {
+				tags = append(tags, element)
+			}
+		}
+
 		resp = append(resp, VMItem{
 			ID:         c.ID,
 			Name:       c.Labels["matrisea_device_name"],
@@ -436,10 +444,10 @@ func (v *VMM) VMList() (VMs, error) {
 			Device:     c.Labels["matrisea_device_template"],
 			IP:         c.NetworkSettings.Networks[DefaultNetwork].IPAddress,
 			Status:     status,
-			Tags:       []string{},
 			CFInstance: c.Labels["cf_instance"],
 			CPU:        cpu,
 			RAM:        ram,
+			Tags:       tags,
 		})
 	}
 	return resp, nil

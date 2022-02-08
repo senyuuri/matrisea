@@ -20,8 +20,11 @@ function DeviceTable(props) {
         dataIndex: "ip",
       },
       {
-        title: 'Created At',
-        dataIndex: "created",
+        title: 'Specs',
+        dataIndex: ["cpu", "ram"],
+        render: (text, row) => {
+          return row['cpu'] + " vCPU / " + row['ram'] + "GB"
+        }
       }
       ,{
         title: 'Tags',
@@ -29,7 +32,7 @@ function DeviceTable(props) {
         render: tags => (
           <>
             {tags.map(tag => {
-              let color = 'geekblue';
+              let color = 'green';
               if (tag === 'Custom Kernel') {
                 color = 'volcano';
               }

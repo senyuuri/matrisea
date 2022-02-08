@@ -189,7 +189,7 @@ function NewVMForm(props) {
             <Button form='new-device-form' htmlType="submit" type="primary">Submit</Button>
           </div>
           <div id='step-2-buttons' style={{display: currentStep===2 ? 'block' : 'none'}}>
-            <Button onClick={handleClose} style={{ marginRight: 8 }}>Cancel</Button>
+            <Button onClick={handleClose} style={{ marginRight: 8 }}>Continue in background</Button>
             <Button onClick={viewResults} disabled={!hasVMCreationSucceed}>Next</Button>
           </div>
           <div id='step-3-buttons' style={{display: currentStep===3 ? 'block' : 'none'}}>
@@ -248,6 +248,7 @@ function NewVMForm(props) {
               type: "cuttlefish-kvm",
               cpu: 2,
               ram: 4,
+              aosp_version: "Android 12"
             }}
           >
             <Row gutter={16}>
@@ -349,6 +350,21 @@ function NewVMForm(props) {
                       {cvdImageButtonText}  
                     </Button>
                   </Form.Item>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row>
+              <Col span={12}>
+                <Form.Item
+                  name="aosp_version"
+                  label="Android Version"
+                  rules={[{ required: true, message: 'Please select the OS version' }]}
+                >
+                  <Select placeholder="Please select the OS version">
+                    <Option key="android-10" value="Android 10">Android 10</Option>
+                    <Option key="android-11" value="Android 11">Android 11</Option>
+                    <Option key="android-12" value="Android 12">Android 12</Option>
+                  </Select>
                 </Form.Item>
               </Col>
             </Row>

@@ -51,6 +51,7 @@ function DeviceDetail(){
         deviceDetail['ram'] + " GB RAM",
         deviceDetail['ip'],
         "Container ID" + " " +deviceDetail['id'].slice(0,8),
+        "Created at " + new Date(deviceDetail['created'] * 1000).toLocaleString()
       ]
       setDeviceDescription(items.join(" / "))
     }

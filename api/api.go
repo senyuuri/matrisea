@@ -83,6 +83,7 @@ type CreateVMRequest struct {
 	SystemImage string `json:"system_image"`
 	CVDImage    string `json:"cvd_image"`
 	KernelImage string `json:"kernel_image"`
+	AOSPVersion string `json:"aosp_version"`
 }
 
 func (r *CreateVMRequest) AbstractRequestBodyMethod() {}
@@ -265,7 +266,7 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: device name exceed 20 characters")
 		return
 	}
-	containerName, err := v.VMCreate(req.DeviceName, req.CPU, req.RAM)
+	containerName, err := v.VMCreate(req.DeviceName, req.CPU, req.RAM, req.AOSPVersion)
 
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: "+err.Error())
