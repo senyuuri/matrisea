@@ -152,7 +152,7 @@ func NewVMM(dataDir string) (*VMM, error) {
 
 // the caller is responsible for setting up device folder
 // assume docker's default network exist on the host
-func (v *VMM) VMCreate(deviceName string) (name string, err error) {
+func (v *VMM) VMCreate(deviceName string, cpu int, ram int) (name string, err error) {
 	ctx := context.Background()
 	containerName := CFPrefix + deviceName
 
@@ -177,6 +177,8 @@ func (v *VMM) VMCreate(deviceName string) (name string, err error) {
 			"n_cf_instances":       "1",
 			"vsock_guest_cid":      "true",
 			"matrisea_device_name": deviceName,
+			"matrisea_cpu":         strconv.Itoa(cpu),
+			"matrisea_ram":         strconv.Itoa(ram),
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -246,7 +248,14 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 	if err != nil {
 		return err
 	}
-
+	labels, err := v.getContainerLabels(containerName)
+	if err != nil {
+		return err
+	}
+	memory_gb, err := strconv.Atoi(labels["matrisea_ram"])
+	if err != nil {
+		return err
+	}
 	// To show the files that define the flags, run bin/launch_cvd --help
 	//
 	// TODO add support for cvd-host_packages in Android 11 and below
@@ -262,6 +271,8 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 		fmt.Sprintf("--base_instance_num=%d", cf_instance), //added in aosp 12 gsi
 		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2), //added in aosp 12 gsi
 		"--report_anonymous_usage_stats=y",                 //added in aosp 12 gsi
+		fmt.Sprintf("--cpus=%s", labels["matrisea_cpu"]),
+		fmt.Sprintf("--memory_mb=%d", memory_gb*1024),
 	}
 	log.Println("VMStart cmdline: ", launch_cmd)
 
@@ -410,7 +421,14 @@ func (v *VMM) VMList() (VMs, error) {
 		if err != nil {
 			return nil, err
 		}
-
+		cpu, err := strconv.Atoi(c.Labels["matrisea_cpu"])
+		if err != nil {
+			cpu = 0
+		}
+		ram, err := strconv.Atoi(c.Labels["matrisea_ram"])
+		if err != nil {
+			ram = 0
+		}
 		resp = append(resp, VMItem{
 			ID:         c.ID,
 			Name:       c.Labels["matrisea_device_name"],
@@ -420,6 +438,8 @@ func (v *VMM) VMList() (VMs, error) {
 			Status:     status,
 			Tags:       []string{},
 			CFInstance: c.Labels["cf_instance"],
+			CPU:        cpu,
+			RAM:        ram,
 		})
 	}
 	return resp, nil
@@ -449,6 +469,18 @@ func (v *VMM) getVMInstanceNum(containerName string) (int, error) {
 	return num, nil
 }
 
+func (v *VMM) getContainerLabels(containerName string) (map[string]string, error) {
+	cid, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return nil, err
+	}
+	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
+	if err != nil {
+		return nil, err
+	}
+	return containerJSON.Config.Labels, nil
+}
+
 // returns a bi-directional stream for the frontend to interact with a container's shell
 func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
 	ctx := context.Background()
@@ -458,6 +490,10 @@ func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse,
 		AttachStderr: true,
 		Cmd:          []string{"/bin/bash"},
 		Tty:          true,
+		// TODO to do it properly, might need to get terminal dimensions from the front end
+		// and dynamically adjust docker's tty dimensions
+		// reference: https://github.com/xtermjs/xterm.js/issues/1359
+		Env: []string{"COLUMNS=205", "LINES=40"},
 	})
 	if err != nil {
 		return types.HijackedResponse{}, err

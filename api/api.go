@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -23,14 +22,6 @@ var (
 	router   *gin.Engine
 	v        *vmm.VMM
 	CFPrefix = "matrisea-cvd-" // container name prefix
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-	// websocket - time allowed to read the next pong message from the peer
-	pongWait = 10 * time.Second
-	// websocket - send pings to peer with this period. Must be less than pongWait
-	pingPeriod = 9 * time.Second
-	// message size limit for websocket
-	maxMessageSize int64 = 512
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -208,10 +199,11 @@ func processWSMessage(c *Connection, buf []byte) {
 func wsListVM(c *Connection) {
 	vmList, err := v.VMList()
 	if err != nil {
+		log.Println("Error: VMList failed due to ", err.Error())
 		c.send <- &WebSocketResponse{
 			Type:     WS_TYPE_LIST_VM,
 			HasError: true,
-			ErrorMsg: "Failed to retrieve VM info",
+			ErrorMsg: "Failed to retrieve VM info due to " + err.Error(),
 		}
 	}
 	c.send <- &WebSocketResponse{
@@ -273,7 +265,7 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: device name exceed 20 characters")
 		return
 	}
-	containerName, err := v.VMCreate(req.DeviceName)
+	containerName, err := v.VMCreate(req.DeviceName, req.CPU, req.RAM)
 
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: "+err.Error())

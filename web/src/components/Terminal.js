@@ -12,18 +12,24 @@ function WebTerminal(props){
     const attachAddon = new AttachAddon(ws);
     
     useEffect(() => {
-        function handleResize() {
-            fitAddon.fit();
-        }
-        window.addEventListener('resize', handleResize)
-        return () => {
-            window.removeEventListener('resize', handleResize)
-        }
+        fitAddon.fit();
         // call any method in XTerm.js by using 'xterm xtermRef.current.terminal.[What you want to call]
     }, [fitAddon])
 
+    useEffect(() => {
+        window.addEventListener('resize', () => {
+            fitAddon.fit()
+        })
+    })
+    
+    const opts = {
+        screenKeys: true,
+        cursorBlink: false
+    };
+
     return (
         <XTerm 
+            options={opts}
             ref={xtermRef}
             addons={[fitAddon, attachAddon]}
         />

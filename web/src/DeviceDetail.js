@@ -12,6 +12,8 @@ function DeviceDetail(){
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
   const VNC_WS_URL = "ws://"+  window.location.hostname + ":" + (parseInt(process.env.REACT_APP_VNC_PORT) + parseInt(cf_instance)-1);
   const [deviceDetail, setDeviceDetail] = useState({});
+  const [deviceDescription, setDeviceDescription] = useState("");
+  
 
   const MyPageHeader = React.forwardRef((props, ref) => (
     <PageHeader
@@ -20,7 +22,7 @@ function DeviceDetail(){
       ghost={false}
       onBack={() => window.history.back()}
       title={device_name}
-      subTitle={Object.keys(deviceDetail).length === 0 ? "" : "2 vCPU / 4 GB RAM / " + deviceDetail['ip'] + " / Container ID " + deviceDetail['id'].slice(0,8)}
+      subTitle={deviceDescription}
       extra={<>
         <Button icon={<PoweroffOutlined />} key="install-btn">Install APK</Button>
         <Button icon={<PoweroffOutlined />} key="power-btn">Power</Button>
@@ -33,8 +35,7 @@ function DeviceDetail(){
     var url = API_ENDPOINT + '/vms/' + device_name
     axios.get(url)
     .then(function (response) {
-      console.log(response)
-      setDeviceDetail(response.data)
+      setDeviceDetail(response.data);
     })
     .catch(function (error) {
       if (error.response) {
@@ -42,6 +43,18 @@ function DeviceDetail(){
       }
     })
   }, [API_ENDPOINT, device_name])
+
+  useEffect(() => {
+    if(Object.keys(deviceDetail).length != 0){
+      const items = [
+        deviceDetail['cpu'] + " vCPU",
+        deviceDetail['ram'] + " GB RAM",
+        deviceDetail['ip'],
+        "Container ID" + " " +deviceDetail['id'].slice(0,8),
+      ]
+      setDeviceDescription(items.join(" / "))
+    }
+  }, [deviceDetail])
   
   return (
     <div className="site-layout-content">
