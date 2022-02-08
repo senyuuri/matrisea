@@ -11,24 +11,33 @@ function NewVMForm(props) {
   const axios = require('axios');
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
   const ws = React.useContext(WsContext);
-
+  
   const [form] = Form.useForm();
-  const [fileModalVisible, setFileModalVisible] = useState(false);
+
+  // State of Drawer
 	const [visible, setVisible] = useState(props.visible);
-  const [filePickerType, setFilePickerType] = useState('System');
-  const [fileList, setFileList] = useState([]);
+  const [isMaskClosable, setIsMaskClosable] = useState(true);
+
+  // State of Global Steps
+  const [currentStep, setCurrentStep] = useState(0);
+  const [step1Visible, setStep1Visible] = useState(true);
+  const [step2Visible, setStep2Visible] = useState(false);
+  const [step3Visible, setStep3Visible] = useState(false);
+
+  // State of Step 1 - New VM Form
   const [systemImageButtonText, setSystemImageButtonText] = useState('Select File');
   const [systemImageIcon, setSystemImageIcon] = useState('PlusOutlined');
   const [cvdImageButtonText, setCvdImageButtonText] = useState('Select File');
   const [cvdImageIcon, setCvdImageIcon] = useState('PlusOutlined');
-  const [currentStep, setCurrentStep] = useState(0);
+
+  // State of Step 2 - VM Creation Progress
+  const [fileModalVisible, setFileModalVisible] = useState(false);
+  const [filePickerType, setFilePickerType] = useState('System');
+  const [fileList, setFileList] = useState([]);
+  const [isSubmitButtonDisabled, setIsSubmitButtonDisabled] = useState(false);
   const [currentCreateVMStep, setCurrentCreateVMStep] = useState(0);
   const [hasErrorInCreateVMStep, setHasErrorInCreateVMStep] = useState(false);
-  const [step1Visible, setStep1Visible] = useState(true);
-  const [step2Visible, setStep2Visible] = useState(false);
-  const [step3Visible, setStep3Visible] = useState(false);
   const [stepStartTime, setStepStartTime] = useState();
-
   const [stepMessages, setStepMessages] = useReducer((stepMessages, { type, idx, value }) => {
     switch (type) {
       case "update":
@@ -144,7 +153,10 @@ function NewVMForm(props) {
     setCurrentCreateVMStep(0);
     setStep1Visible(true);
     setStep2Visible(false);
-    setStep3Visible(true);
+    setStep3Visible(false);
+    setIsMaskClosable(true);
+    setIsSubmitButtonDisabled(false);
+    setHasErrorInCreateVMStep(false);
   },[form]);
 
   const handleClose = useCallback((values) => {
@@ -168,6 +180,8 @@ function NewVMForm(props) {
     setStep1Visible(false);
     setStep2Visible(true);
     setStep3Visible(false);
+    setIsMaskClosable(false);
+    setIsSubmitButtonDisabled(true);
     setStepStartTime(new Date().getTime() / 1000);
 	},[ws]);
 
@@ -184,10 +198,11 @@ function NewVMForm(props) {
 			onClose={handleClose}
 			visible={visible}
 			bodyStyle={{ paddingBottom: 80 }}
+      maskClosable={isMaskClosable}
 			footer={
         <div style={{textAlign: 'right',}}>
           <Button onClick={handleClose} style={{ marginRight: 8 }}>Cancel</Button>
-          <Button form='new-device-form' htmlType="submit" type="primary">Submit</Button>
+          <Button form='new-device-form' htmlType="submit" type="primary" disabled={isSubmitButtonDisabled}>Submit</Button>
         </div>
 			}
 		>
