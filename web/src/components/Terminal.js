@@ -4,16 +4,16 @@ import { FitAddon } from 'xterm-addon-fit';
 import { AttachAddon } from 'xterm-addon-attach';
 
 function WebTerminal(props){
-    const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
-    const ws = new WebSocket(WS_ENDPOINT + "/vms/matrisea-cvd-" +props.deviceName+ "/ws");
+    const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1";
+    const ws = useMemo(() => new WebSocket(WS_ENDPOINT + "/vms/matrisea-cvd-" +props.deviceName+ "/ws"), [WS_ENDPOINT, props.deviceName]);
 
     const xtermRef = useRef(null);
     const fitAddon = useMemo(() => new FitAddon(),[]);
-    const attachAddon = new AttachAddon(ws);
+    const attachAddon = useMemo(() => new AttachAddon(ws),[ws]);
     
     useEffect(() => {
         fitAddon.fit();
-        // call any method in XTerm.js by using 'xterm xtermRef.current.terminal.[What you want to call]
+        // call any method in XTerm.js by using 'xtermRef.current.terminal.[Whatever you want to call]
     }, [fitAddon])
 
     useEffect(() => {
@@ -24,7 +24,8 @@ function WebTerminal(props){
     
     const opts = {
         screenKeys: true,
-        cursorBlink: false
+        cursorBlink: false,
+        scrollback: 9999999, // unlimited
     };
 
     return (
