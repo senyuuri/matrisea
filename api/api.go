@@ -50,6 +50,7 @@ type WsMessageType int
 const (
 	WS_TYPE_LIST_VM WsMessageType = iota
 	WS_TYPE_CREATE_VM
+	WS_TYPE_STREAM_LOG
 	WS_TYPE_UNKNOWN
 )
 
@@ -99,6 +100,28 @@ type ListVMResponse struct {
 }
 
 func (r *ListVMResponse) AbstractResponseBodyMethod() {}
+
+type LogSource int
+
+const (
+	LOG_LAUNCHER LogSource = iota
+	LOG_KERNEL
+	LOG_LOGCAT
+)
+
+type StreamLogRequest struct {
+	Source     LogSource `json:"source" binding:"required"`
+	DeviceName string    `json:"device_name" binding:"required"`
+}
+
+func (r *StreamLogRequest) AbstractRequestBodyMethod() {}
+
+type StreamLogResponse struct {
+	Source LogSource `json:"source" binding:"required"`
+	Log    string    `json:"log"`
+}
+
+func (r *StreamLogResponse) AbstractResponseBodyMethod() {}
 
 func main() {
 	var err error
@@ -179,12 +202,21 @@ func processWSMessage(c *Connection, buf []byte) {
 
 	case WS_TYPE_CREATE_VM:
 		log.Printf("/api/v1/ws invoke wsCreateVM()")
-		var req CreateVMRequest
-		err = json.Unmarshal(objmap["data"], &req)
+		var createReq CreateVMRequest
+		err = json.Unmarshal(objmap["data"], &createReq)
 		if err != nil {
 			log.Println(err.Error())
 		}
-		wsCreateVM(c, req)
+		wsCreateVM(c, createReq)
+
+	case WS_TYPE_STREAM_LOG:
+		log.Printf("/api/v1/ws invoke wsStreamLog()")
+		var streamReq StreamLogRequest
+		err = json.Unmarshal(objmap["data"], &streamReq)
+		if err != nil {
+			log.Println(err.Error())
+		}
+		wsStreamLog(c, streamReq)
 
 	default:
 		c.send <- &WebSocketResponse{
@@ -212,6 +244,73 @@ func wsListVM(c *Connection) {
 		Data: &ListVMResponse{
 			VMs: vmList,
 		},
+	}
+}
+
+func wsStreamLog(c *Connection, req StreamLogRequest) {
+	var logFile string
+	switch req.Source {
+	case LOG_LAUNCHER:
+		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/launcher.log")
+	case LOG_KERNEL:
+		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/kernel.log")
+	case LOG_LOGCAT:
+		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/logcat")
+	default:
+		c.send <- &WebSocketResponse{
+			Type:     WS_TYPE_STREAM_LOG,
+			HasError: true,
+			ErrorMsg: "Unknown log source",
+		}
+		return
+	}
+	containerName := CFPrefix + req.DeviceName
+	cmd := []string{"tail", "+1f", logFile}
+	// run bash in container and get the hijacked session
+	hijackedResp, err := v.ExecAttachToTTYProcess(containerName, cmd, []string{})
+	if err != nil {
+		log.Println("Failed to get log due to", err.Error())
+		c.send <- &WebSocketResponse{
+			Type:     WS_TYPE_STREAM_LOG,
+			HasError: true,
+			ErrorMsg: fmt.Sprintf("Failed to get log due to %s", err.Error()),
+		}
+		return
+	}
+
+	// clean up after quit
+	defer func() {
+		fmt.Println("exit log writer")
+		hijackedResp.Conn.Write([]byte("exit\r"))
+		if err := v.KillTTYProcess(containerName, strings.Join(cmd, " ")); err != nil {
+			log.Printf("Failed to kill log writer %s of container %s on exit due to %s", logFile, containerName, err.Error())
+		}
+	}()
+	defer hijackedResp.Close()
+
+	// same logic as wsWriter but we are sending to main WS connection's writer
+	buf := make([]byte, 8192)
+	for {
+		nr, err := hijackedResp.Conn.Read(buf)
+		if err != nil {
+			log.Println("Failed to read log due to", err.Error())
+			c.send <- &WebSocketResponse{
+				Type:     WS_TYPE_STREAM_LOG,
+				HasError: true,
+				ErrorMsg: fmt.Sprintf("Failed to get log due to %s", err.Error()),
+			}
+			return
+		}
+		if nr > 0 {
+			c.send <- &WebSocketResponse{
+				Type:     WS_TYPE_STREAM_LOG,
+				HasError: false,
+				Data: &StreamLogResponse{
+					Source: req.Source,
+					Log:    strings.ReplaceAll(string(buf[0:nr]), "\r", ""),
+				},
+			}
+		}
 	}
 }
 
@@ -405,10 +504,9 @@ func terminalHandler(c *gin.Context) {
 	defer conn.Close()
 
 	// read container name from URL params
-	container := c.Param("name")
-
+	containerName := CFPrefix + c.Param("name")
 	// run bash in container and get the hijacked session
-	hijackedResp, err := v.AttachToTerminal(container)
+	hijackedResp, err := v.ExecAttachToTerminal(containerName)
 	if err != nil {
 		// TODO how to let front end know this error?
 		log.Println(err.Error())
@@ -418,6 +516,9 @@ func terminalHandler(c *gin.Context) {
 	// clean up after quit
 	defer func() {
 		hijackedResp.Conn.Write([]byte("exit\r"))
+		if err := v.KillTerminal(containerName); err != nil {
+			log.Printf("Failed to kill terminal of container %s on exit due to %s", containerName, err.Error())
+		}
 	}()
 	defer hijackedResp.Close()
 

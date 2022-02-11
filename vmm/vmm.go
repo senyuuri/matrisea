@@ -235,6 +235,10 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 	if err != nil {
 		return "", err
 	}
+	err = v.installTools(containerName)
+	if err != nil {
+		return "", err
+	}
 
 	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfIndex)
 
@@ -489,19 +493,47 @@ func (v *VMM) getContainerLabels(containerName string) (map[string]string, error
 	return containerJSON.Config.Labels, nil
 }
 
-// returns a bi-directional stream for the frontend to interact with a container's shell
-func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
+// Start a bash shell in the container and returns a bi-directional stream for the frontend to interact with.
+// It's up to the caller to close the hijacked connection by calling types.HijackedResponse.Close.
+// It's up to the caller to call KillTerminal() to kill the long running process at exit
+func (v *VMM) ExecAttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
+	log.Printf("ExecAttachToTerminal %s\n", containerName)
+	// TODO to do it properly, might need to get terminal dimensions from the front end
+	// and dynamically adjust docker's tty dimensions
+	// reference: https://github.com/xtermjs/xterm.js/issues/1359
+	cmd := []string{"/bin/bash"}
+	env := []string{"COLUMNS=205", "LINES=40"}
+	return v.ExecAttachToTTYProcess(containerName, cmd, env)
+}
+
+// Start a long running process with TTY and returns a bi-directional stream for the frontend to interact with.
+// It's up to the caller to close the hijacked connection by calling types.HijackedResponse.Close.
+// It's up to the caller to call KillTerminal() to kill the long running process at exit. (see reason below)
+//
+// Explanation: types.HijackedResponse.Close only calls HijackedResponse.Conn.Close() which leaves the process in the
+// container to run forever. Moby's implementation of ContainerExecStart only terminates the process when either
+// the context is Done or the attached stream returns EOF/error. In our use cases (e.g. bash/tail -f), the only possible
+// way to terminate such long running processes by API is through context. However, if we trace ContainerExecAttach,
+// Eventually we will end up at...
+//
+// # api/server/router/container/exec.go#L132
+// // Now run the user process in container.
+// // Maybe we should we pass ctx here if we're not detaching?
+// s.backend.ContainerExecStart(context.Background(), ...)
+//
+// https://github.com/moby/moby/blob/7b9275c0da707b030e62c96b679a976f31f929d3/api/server/router/container/exec.go#L132
+//
+// ... which always create a new context.Background(). Apparantly Moby team didn't implement the `maybe` part that allows
+// context passing.
+func (v *VMM) ExecAttachToTTYProcess(containerName string, cmd []string, env []string) (hr types.HijackedResponse, err error) {
 	ctx := context.Background()
 	ir, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
-		Cmd:          []string{"/bin/bash"},
+		Cmd:          cmd,
 		Tty:          true,
-		// TODO to do it properly, might need to get terminal dimensions from the front end
-		// and dynamically adjust docker's tty dimensions
-		// reference: https://github.com/xtermjs/xterm.js/issues/1359
-		Env: []string{"COLUMNS=205", "LINES=40"},
+		Env:          env,
 	})
 	if err != nil {
 		return types.HijackedResponse{}, err
@@ -514,6 +546,38 @@ func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse,
 	return hijackedResp, nil
 }
 
+// Kill the bash process after use. To be called after done with the process created by ExecAttachToTerminal().
+func (v *VMM) KillTerminal(containerName string) error {
+	return v.KillTTYProcess(containerName, "/bin/bash")
+}
+
+// Kill all process in the given container with the given cmd. To be called after done with the process created by ExecAttachToTTYProcess().
+//
+// This is an ugly workaround since Moby's exec kill is long overdue (since 2014 https://github.com/moby/moby/pull/41548)
+// Unfortunately we have to kill all pids of the same cmd since we can't get the specific terminal's pid in the container's
+// pid namespace. This is because when creating a terminal in AttachToTerminal(), ContainerExecCreate only returns
+// an execID that links to the spawned process's pid in the HOST pid namespace. We can't directly kill a host process unless
+// we run the API server as root, which is undesirable.
+func (v *VMM) KillTTYProcess(containerName string, cmd string) error {
+	resp, err := v.ContainerExec(containerName, fmt.Sprintf("ps -ef | awk '$8==\"%s\" {print $2}'", cmd), "vsoc-01")
+	if err != nil {
+		return err
+	}
+	pids := strings.Split(resp.outBuffer.String(), "\n")
+	for _, pid := range pids {
+		if pid != "" {
+			_, err := v.ContainerExec(containerName, fmt.Sprintf("kill %s", pid), "root")
+			if err != nil {
+				// kill with best effort so just do logging
+				log.Printf("Failed to kill process %s in container %s due to %s\n", pid, containerName, err.Error())
+				continue
+			}
+			log.Printf("Killed process (%s)%s in container %s", pid, cmd, containerName)
+		}
+	}
+	return nil
+}
+
 // Install websockify and listen to websocket-based VNC connection on the container port 6080
 //
 // When a cuttlefish VM is created with --start-vnc-server flag, /home/vsoc-01/bin/vnc_server starts to listen
@@ -524,21 +588,13 @@ func (v *VMM) AttachToTerminal(containerName string) (hr types.HijackedResponse,
 // Notice that websockify only listen on eth0 inside of the container which isn't reachable from outside of the host.
 // The caller of this function is responsible to setup a reverse proxy to enable external VNC access.
 func (v *VMM) startVNCProxy(containerName string) error {
-	resp, err := v.ContainerExec(containerName, "apt install -y -qq websockify", "root")
-	if err != nil {
-		return err
-	}
-	if resp.ExitCode != 0 {
-		return &VMMError{"Failed to install websockify"}
-	}
 	cfIndex, err := v.getVMInstanceNum(containerName)
 	if err != nil {
 		return &VMMError{"Failed to get VMInstanceNumber"}
 	}
-
 	vncPort := 6444 + cfIndex - 1
 	wsPort := 6080 + cfIndex - 1
-	resp, err = v.ContainerExec(containerName, fmt.Sprintf("websockify -D %d 127.0.0.1:%d --log-file websockify.log", wsPort, vncPort), "vsoc-01")
+	resp, err := v.ContainerExec(containerName, fmt.Sprintf("websockify -D %d 127.0.0.1:%d --log-file websockify.log", wsPort, vncPort), "vsoc-01")
 	if err != nil {
 		return err
 	}
@@ -549,8 +605,22 @@ func (v *VMM) startVNCProxy(containerName string) error {
 	return nil
 }
 
-func (v *VMM) installAdeb() {
-	// call
+func (v *VMM) installTools(containerName string) error {
+	resp, err := v.ContainerExec(containerName, "apt install -y -qq adb htop python3-pip iputils-ping less websockify", "root")
+	if err != nil {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		return &VMMError{"Failed to apt install additional tools"}
+	}
+	resp, err = v.ContainerExec(containerName, "pip3 install frida-tools", "root")
+	if err != nil {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		return &VMMError{"Failed to install python packages"}
+	}
+	return nil
 }
 
 func (v *VMM) getContainerNameByID(containerID string) (name string, err error) {
