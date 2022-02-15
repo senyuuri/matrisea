@@ -559,11 +559,15 @@ func (v *VMM) KillTerminal(containerName string) error {
 // an execID that links to the spawned process's pid in the HOST pid namespace. We can't directly kill a host process unless
 // we run the API server as root, which is undesirable.
 func (v *VMM) KillTTYProcess(containerName string, cmd string) error {
-	resp, err := v.ContainerExec(containerName, fmt.Sprintf("ps -ef | awk '$8==\"%s\" {print $2}'", cmd), "vsoc-01")
+	process := strings.Split(cmd, " ")[0]
+	resp, err := v.ContainerExec(containerName, fmt.Sprintf("ps -ef | awk '$8==\"%s\" {print $2}'", process), "vsoc-01")
 	if err != nil {
 		return err
 	}
 	pids := strings.Split(resp.outBuffer.String(), "\n")
+	if len(pids) == 0 {
+		log.Printf("Failed to kill process %s in container %s due to no matched pid found\n", process, containerName)
+	}
 	for _, pid := range pids {
 		if pid != "" {
 			_, err := v.ContainerExec(containerName, fmt.Sprintf("kill %s", pid), "root")
@@ -572,7 +576,7 @@ func (v *VMM) KillTTYProcess(containerName string, cmd string) error {
 				log.Printf("Failed to kill process %s in container %s due to %s\n", pid, containerName, err.Error())
 				continue
 			}
-			log.Printf("Killed process (%s)%s in container %s", pid, cmd, containerName)
+			log.Printf("Killed process (%s)%s in container %s", pid, process, containerName)
 		}
 	}
 	return nil
