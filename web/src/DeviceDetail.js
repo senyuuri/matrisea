@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { useParams } from "react-router-dom";
+import { useParams, useHistory } from "react-router-dom";
 import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message} from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
@@ -8,11 +8,11 @@ import axios from 'axios';
 
 import WebTerminal from './components/Terminal';
 import VNCDisplay from './components/VNCDisplay';
-import { WsContext } from './Context';
 
 const { SubMenu } = Menu;
 
 function DeviceDetail(){
+  const history = useHistory();
   const { device_name, cf_instance } = useParams();
   const [deviceDetail, setDeviceDetail] = useState({});
   const [deviceDescription, setDeviceDescription] = useState("");
@@ -34,7 +34,7 @@ function DeviceDetail(){
       innerRef={ref}
       key="2"
       ghost={false}
-      onBack={() => window.history.back()}
+      onBack={() => history.push("/")}
       title={device_name}
       subTitle={deviceDescription}
       extra={<>
