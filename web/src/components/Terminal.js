@@ -16,7 +16,7 @@ function WebTerminal(props){
             fitAddon.fit();
         }
         // call any method in XTerm.js by using 'xtermRef.current.terminal.[Whatever you want to call]
-    })
+    },[])
 
     const resizeCallback = useCallback(() => {
         if (!props.isHidden) {
