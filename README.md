@@ -5,7 +5,7 @@
 
 *Disclaimer: This project is still in the pre-alpha and is under active development. Features and functions are expected to break from time to time.*
 
-**Matrisea (/ˈmeɪtrɪksiː/)** is a cloud-based Android reversing platform that provides high-fidelity virtural devices with powerful integrated tools. 
+**Matrisea (/ˈmeɪtrɪksiː/)** is a cloud-based Android reversing platform that provides high-fidelity virtual devices with powerful integrated tools. 
 
 ![demo](./docs/demo.gif)
 
