@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -122,8 +121,8 @@ func main() {
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.DELETE("/vms/:name", removeVM)
-		v1.GET("/vms/:name/ws", terminalHandler)       // websocket
-		v1.GET("/vms/:name/log/:source", wsLogHandler) // websocket
+		v1.GET("/vms/:name/ws", TerminalHandler)           // websocket
+		v1.GET("/vms/:name/log/:source", LogStreamHandler) // websocket
 		v1.GET("/files/system", getSystemImageList)
 		v1.GET("/files/cvd", getCVDImageList)
 		v1.POST("/files/upload", uploadFile)
@@ -194,59 +193,6 @@ func wsMainPageHandler(c *Connection, buf []byte) {
 			ErrorMsg: fmt.Sprintf("Unknown websocket message type %d", reqType),
 		}
 	}
-}
-
-func wsLogHandler(c *gin.Context) {
-	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Print("upgrade:", err)
-		return
-	}
-	defer conn.Close()
-
-	var logFile string
-	switch c.Param("source") {
-	case "launcher":
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/launcher.log")
-	case "kernel":
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/kernel.log")
-	case "logcat":
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/logcat")
-	default:
-		// TODO send error message
-		return
-	}
-
-	containerName := CFPrefix + c.Param("name")
-	cmd := []string{"tail", "+1f", logFile}
-	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ExecAttachToTTYProcess(containerName, cmd, []string{})
-	if err != nil {
-		log.Println("Failed to get log due to", err.Error())
-		return
-	}
-
-	// clean up after quit
-	defer func() {
-		fmt.Println("exit log writer" + logFile)
-		hijackedResp.Conn.Write([]byte("exit\r"))
-		if err := v.KillTTYProcess(containerName, strings.Join(cmd, " ")); err != nil {
-			log.Printf("Failed to kill log writer %s of container %s on exit due to %s", logFile, containerName, err.Error())
-		}
-	}()
-	defer hijackedResp.Close()
-
-	// forward read/write to websocket
-	go wsLogWriterCopy(conn, hijackedResp.Conn)
-	// Why wsReaderCopy here is not invoked as goroutine is to use client ws close event (e.g. browser tab closed)
-	// as a signal of the end of user interaction, so we can trigger the deferred cleanup function.
-	//
-	// Sequence of events:
-	//   --Start wsReaderCopy
-	//   --Error in wsReaderCopy - socket: close 1001 (going away)
-	//   --End of attach to terminal
-	//   --Deferred cleanup
-	wsReaderCopy(conn, hijackedResp.Conn)
 }
 
 // Get a list of existing VMs as long as there's a container for it, regardless of the container status
@@ -445,46 +391,6 @@ func removeVM(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "ok"})
 }
 
-func terminalHandler(c *gin.Context) {
-	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Print("upgrade:", err)
-		return
-	}
-	defer conn.Close()
-
-	// read container name from URL params
-	containerName := CFPrefix + c.Param("name")
-	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ExecAttachToTerminal(containerName)
-	if err != nil {
-		// TODO how to let front end know this error?
-		log.Println(err.Error())
-		return
-	}
-
-	// clean up after quit
-	defer func() {
-		hijackedResp.Conn.Write([]byte("exit\r"))
-		if err := v.KillTerminal(containerName); err != nil {
-			log.Printf("Failed to kill terminal of container %s on exit due to %s", containerName, err.Error())
-		}
-	}()
-	defer hijackedResp.Close()
-
-	// forward read/write to websocket
-	go wsWriterCopy(conn, hijackedResp.Conn)
-	// Why wsReaderCopy here is not invoked as goroutine is to use client ws close event (e.g. browser tab closed)
-	// as a signal of the end of user interaction, so we can trigger the deferred cleanup function.
-	//
-	// Sequence of events:
-	//   --Start wsReaderCopy
-	//   --Error in wsReaderCopy - socket: close 1001 (going away)
-	//   --End of attach to terminal
-	//   --Deferred cleanup
-	wsReaderCopy(conn, hijackedResp.Conn)
-}
-
 func getSystemImageList(c *gin.Context) {
 	var files []string
 
@@ -553,53 +459,6 @@ func uploadFile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "success",
 	})
-}
-
-// write terminal output to front end
-func wsWriterCopy(writer *websocket.Conn, reader io.Reader) {
-	buf := make([]byte, 8192)
-	for {
-		nr, err := reader.Read(buf)
-		if nr > 0 {
-			err := writer.WriteMessage(websocket.BinaryMessage, buf[0:nr])
-			if err != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
-}
-
-func wsLogWriterCopy(writer *websocket.Conn, reader io.Reader) {
-	buf := make([]byte, 8192)
-	for {
-		nr, err := reader.Read(buf)
-		if err != nil {
-			return
-		}
-		if nr > 0 {
-			cleanLog := strings.ReplaceAll(string(buf[0:nr]), "\r", "")
-			err := writer.WriteMessage(websocket.TextMessage, []byte(cleanLog))
-			if err != nil {
-				return
-			}
-		}
-	}
-}
-
-// send front end input to terminal
-func wsReaderCopy(reader *websocket.Conn, writer io.Writer) {
-	for {
-		messageType, p, err := reader.ReadMessage()
-		if err != nil {
-			return
-		}
-		if messageType == websocket.TextMessage {
-			writer.Write(p)
-		}
-	}
 }
 
 func getenv(key, fallback string) string {
