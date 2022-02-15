@@ -41,6 +41,8 @@ function NewVMForm(props) {
         let tmpArr = [...stepMessages];
         tmpArr[idx] = value;
         return tmpArr;
+      case "reset":
+        return Array(5).fill('');
       default:
         return stepMessages;
     }
@@ -62,6 +64,7 @@ function NewVMForm(props) {
     setIsMaskClosable(true);
     setHasErrorInCreateVMStep(false);
     setHasVMCreationSucceed(false);
+    setStepMessages({type:"reset"});
   },[form]);
 
   const handleWSMessage = useCallback((e) => {
@@ -244,7 +247,7 @@ function NewVMForm(props) {
             hideRequiredMark
             onFinish={submitForm}
             initialValues={{
-              name: 'cvd-'+ Math.random().toString(36).substring(2, 8),
+              name: Math.random().toString(36).substring(2, 8),
               type: "cuttlefish-kvm",
               cpu: 2,
               ram: 4,
