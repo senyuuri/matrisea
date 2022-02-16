@@ -49,6 +49,7 @@ type WsMessageType int
 const (
 	WS_TYPE_LIST_VM WsMessageType = iota
 	WS_TYPE_CREATE_VM
+	WS_TYPE_INSTALL_APK
 	WS_TYPE_UNKNOWN
 )
 
@@ -98,6 +99,20 @@ type ListVMResponse struct {
 }
 
 func (r *ListVMResponse) AbstractResponseBodyMethod() {}
+
+type InstallAPKRequest struct {
+	DeviceName string `json:"name" binding:"required"`
+	File       string `json:"file" binding:"required"`
+}
+
+func (r *InstallAPKRequest) AbstractRequestBodyMethod() {}
+
+type InstallAPKResponse struct {
+	DeviceName string `json:"name" binding:"required"`
+	File       string `json:"file" binding:"required"`
+}
+
+func (r *InstallAPKResponse) AbstractResponseBodyMethod() {}
 
 func main() {
 	var err error
@@ -184,16 +199,47 @@ func wsMainPageHandler(c *Connection, buf []byte) {
 		var createReq CreateVMRequest
 		err = json.Unmarshal(objmap["data"], &createReq)
 		if err != nil {
-			log.Println(err.Error())
+			wsError(c, WS_TYPE_CREATE_VM, "Invalid message type")
 		}
 		wsCreateVM(c, createReq)
 
-	default:
-		c.send <- &WebSocketResponse{
-			Type:     WS_TYPE_UNKNOWN,
-			HasError: true,
-			ErrorMsg: fmt.Sprintf("Unknown websocket message type %d", reqType),
+	case WS_TYPE_INSTALL_APK:
+		log.Printf("/api/v1/ws invoke wsInstallAPK()")
+		var installReq InstallAPKRequest
+		err = json.Unmarshal(objmap["data"], &installReq)
+		if err != nil {
+			log.Println(err.Error())
 		}
+		wsInstallAPK(c, installReq)
+
+	default:
+		wsError(c, WS_TYPE_UNKNOWN, fmt.Sprintf("Unknown websocket message type %d", reqType))
+	}
+}
+
+func wsError(c *Connection, t WsMessageType, msg string) {
+	log.Printf("wsError: %s, %d, %s", c.conn.RemoteAddr(), t, msg)
+	c.send <- &WebSocketResponse{
+		Type:     t,
+		HasError: true,
+		ErrorMsg: msg,
+	}
+}
+
+func wsInstallAPK(c *Connection, req InstallAPKRequest) {
+	containerName := CFPrefix + req.DeviceName
+	err := v.InstallAPK(containerName, req.File)
+	if err != nil {
+		wsError(c, WS_TYPE_INSTALL_APK, err.Error())
+		return
+	}
+	c.send <- &WebSocketResponse{
+		Type:     WS_TYPE_INSTALL_APK,
+		HasError: false,
+		Data: &InstallAPKResponse{
+			DeviceName: req.DeviceName,
+			File:       req.File,
+		},
 	}
 }
 

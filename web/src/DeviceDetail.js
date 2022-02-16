@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useHistory } from "react-router-dom";
-import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message, Modal} from 'antd';
+import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message } from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
 import { LazyLog, ScrollFollow } from 'react-lazylog';

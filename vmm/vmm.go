@@ -189,8 +189,8 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		},
 	}
 
-	imageDir := path.Join(v.DevicesDir, containerName)
-	if _, err := os.Stat(imageDir); os.IsNotExist(err) {
+	deviceDir := path.Join(v.DevicesDir, containerName)
+	if _, err := os.Stat(deviceDir); os.IsNotExist(err) {
 		return "", err
 	}
 
@@ -201,6 +201,12 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 				Type:     mount.TypeBind,
 				Source:   "/sys/fs/cgroup",
 				Target:   "/sys/fs/cgroup",
+				ReadOnly: false,
+			},
+			{
+				Type:     mount.TypeBind,
+				Source:   deviceDir,
+				Target:   "/data",
 				ReadOnly: false,
 			},
 		},
@@ -231,11 +237,15 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		return "", err
 	}
 	// start auxillary deamons
+	err = v.installTools(containerName)
+	if err != nil {
+		return "", err
+	}
 	err = v.startVNCProxy(containerName)
 	if err != nil {
 		return "", err
 	}
-	err = v.installTools(containerName)
+	err = v.startADBDaemon(containerName)
 	if err != nil {
 		return "", err
 	}
@@ -603,9 +613,21 @@ func (v *VMM) startVNCProxy(containerName string) error {
 		return err
 	}
 	if resp.ExitCode != 0 {
-		return &VMMError{"Failed to start websockify"}
+		return &VMMError{"Failed to start websockify, reason:" + resp.errBuffer.String()}
 	}
 	log.Println("websockify daemon started")
+	return nil
+}
+
+func (v *VMM) startADBDaemon(containerName string) error {
+	resp, err := v.ContainerExec(containerName, "adb connect localhost:6520", "vsoc-01")
+	if err != nil {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		return &VMMError{"Failed to start adb daemon, reason" + resp.errBuffer.String()}
+	}
+	log.Println("adb daemon started")
 	return nil
 }
 
@@ -615,14 +637,30 @@ func (v *VMM) installTools(containerName string) error {
 		return err
 	}
 	if resp.ExitCode != 0 {
-		return &VMMError{"Failed to apt install additional tools"}
+		return &VMMError{"Failed to apt install additional tools, reason:" + resp.errBuffer.String()}
 	}
 	resp, err = v.ContainerExec(containerName, "pip3 install frida-tools", "root")
 	if err != nil {
 		return err
 	}
 	if resp.ExitCode != 0 {
-		return &VMMError{"Failed to install python packages"}
+		return &VMMError{"Failed to install python packages, reason:" + resp.errBuffer.String()}
+	}
+	return nil
+}
+
+func (v *VMM) InstallAPK(containerName string, apkFile string) error {
+	f := path.Join(v.DevicesDir, containerName, apkFile)
+	if _, err := os.Stat(f); os.IsNotExist(err) {
+		log.Printf("Abort installAPK because %s does not exist", f)
+		return &VMMError{"Apk file does not exist"}
+	}
+	resp, err := v.ContainerExec(containerName, "adb install \"/data/"+apkFile+"\"", "vsoc-01")
+	if err != nil {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		return &VMMError{"non-zero exit in installAPK: " + resp.errBuffer.String()}
 	}
 	return nil
 }

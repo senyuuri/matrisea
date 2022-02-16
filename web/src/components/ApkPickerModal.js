@@ -1,7 +1,8 @@
 import { Form, Select, Upload, Modal, Tabs, message} from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useContext } from 'react';
 import axios from 'axios';
+import { WsContext } from '../Context';
 
 const { Dragger } = Upload;
 const { TabPane } = Tabs;
@@ -10,12 +11,24 @@ const { TabPane } = Tabs;
 const ApkPickerModal = ({ visible, onCancelCallback, deviceName }) => {
     const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
     const [form] = Form.useForm();
+    const ws = useContext(WsContext);
+
     const [fileList, setFileList] = useState([]);
     const [isFileListLoading, setIsFileListLoading] = useState(false);
 
     const onOk = () => {
-        // reset this form in the main form's onFormFinish()
-        form.submit();
+        if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({
+              type: 2,
+              data: {
+                  name: deviceName,
+                  file: form.getFieldValue("filename")
+              }
+            }));
+            message.info('Installing apk in the background')
+        } else {
+            message.error('Unable to send request due to connection lost. Please try again')
+        }
         onCancelCallback();
     };
 
@@ -45,6 +58,27 @@ const ApkPickerModal = ({ visible, onCancelCallback, deviceName }) => {
             console.log('Dropped files', e.dataTransfer.files);
         }
     }
+
+    const handleWSMessage = useCallback((e) => {
+        var msg = JSON.parse(e.data);
+        // type 2: WS_TYPE_INSTALL_APK
+        if (msg.type === 2){
+            if(msg.has_error) {
+                message.error("Failed to install apk due to" + msg.error);
+            } else {
+                message.success("Successfully installed "+ msg.data.file + " on "  + msg.data.name)
+            }
+        }
+    },[]);
+
+    useEffect(() => {
+        if(ws){
+          ws.addEventListener("message", handleWSMessage);
+          return () => {
+            ws.removeEventListener("message", handleWSMessage);
+          }
+        }
+      }, [ws,handleWSMessage]);
 
     useEffect(() => {
         if (visible) {
