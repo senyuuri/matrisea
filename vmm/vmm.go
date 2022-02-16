@@ -559,6 +559,7 @@ func (v *VMM) ExecAttachToTerminal(containerName string) (hr types.HijackedRespo
 func (v *VMM) ExecAttachToTTYProcess(containerName string, cmd []string, env []string) (hr types.HijackedResponse, err error) {
 	ctx := context.Background()
 	ir, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+		User:         "vsoc-01",
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
@@ -640,6 +641,9 @@ func (v *VMM) startVNCProxy(containerName string) error {
 	return nil
 }
 
+// Start an adb daemon in the container and connect to the VM
+// The function should be called when VM has booted up and started listening on the adb port
+// The function is safe to be called repeatedly as adb will ignore duplicated connect commands and return "already connected"
 func (v *VMM) startADBDaemon(containerName string) error {
 	cfIndex, err := v.GetVMInstanceNum(containerName)
 	if err != nil {
@@ -658,13 +662,13 @@ func (v *VMM) startADBDaemon(containerName string) error {
 		return &VMMError{"Failed to start adb daemon, reason" + resp.errBuffer.String()}
 	}
 	log.Printf("adb daemon connected to %s:%d", ip, adbPort)
-	log.Println("adb stdout:" + resp.outBuffer.String())
-	log.Println("adb stderr:" + resp.outBuffer.String())
+	log.Print("adb stdout:" + resp.outBuffer.String())
+	log.Print("adb stderr:" + resp.outBuffer.String())
 	return nil
 }
 
 func (v *VMM) installTools(containerName string) error {
-	resp, err := v.ContainerExec(containerName, "apt install -y -qq adb htop python3-pip iputils-ping less websockify", "root")
+	resp, err := v.ContainerExec(containerName, "apt install -y -qq adb git htop python3-pip iputils-ping less websockify", "root")
 	if err != nil {
 		return err
 	}
@@ -686,6 +690,11 @@ func (v *VMM) InstallAPK(containerName string, apkFile string) error {
 	if _, err := os.Stat(f); os.IsNotExist(err) {
 		log.Printf("Abort installAPK because %s does not exist", f)
 		return &VMMError{"Apk file does not exist"}
+	}
+	// adb daemon may have been terminated at this point so let's bring it up
+	err := v.startADBDaemon(containerName)
+	if err != nil {
+		return err
 	}
 	resp, err := v.ContainerExec(containerName, "adb install \"/data/"+apkFile+"\"", "vsoc-01")
 	if err != nil {
