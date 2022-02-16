@@ -245,10 +245,6 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 	if err != nil {
 		return "", err
 	}
-	err = v.startADBDaemon(containerName)
-	if err != nil {
-		return "", err
-	}
 
 	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfIndex)
 
@@ -259,7 +255,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 // notice VMStart() doesn't guarentee succeesful VM boot if the boot process takes more than timeout
 func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err error) {
 	start := time.Now()
-	cf_instance, err := v.getVMInstanceNum(containerName)
+	cf_instance, err := v.GetVMInstanceNum(containerName)
 	if err != nil {
 		return err
 	}
@@ -311,6 +307,16 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 		return err
 	}
 	defer aresp.Close()
+
+	// adb daemon needs to wait for the VM to boot in order to connect.
+	// As we can't know for sure when the VM will start listening, our best chance to start adb daemon is to
+	// wait for VMStart to complete/timeout
+	defer func() {
+		err = v.startADBDaemon(containerName)
+		if err != nil {
+			log.Println(containerName, err.Error())
+		}
+	}()
 
 	// If isAsync is ture, we wait for the VM to boot, read stdout continuously, and return success only until we see
 	// VIRTUAL_DEVICE_BOOT_COMPLETED in the log. This mode is only used at VM creation time to ensure the new VM can
@@ -406,7 +412,10 @@ func (v *VMM) VMRemove(containerName string) error {
 	if err != nil {
 		return err
 	}
-
+	err = os.RemoveAll(path.Join(v.DevicesDir, containerName))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -475,7 +484,7 @@ func (v *VMM) countVM() (int, error) {
 	return len(cfList), nil
 }
 
-func (v *VMM) getVMInstanceNum(containerName string) (int, error) {
+func (v *VMM) GetVMInstanceNum(containerName string) (int, error) {
 	cid, err := v.getContainerIDByName(containerName)
 	if err != nil {
 		return -1, err
@@ -489,6 +498,18 @@ func (v *VMM) getVMInstanceNum(containerName string) (int, error) {
 		return -1, err
 	}
 	return num, nil
+}
+
+func (v *VMM) getContainerIP(containerName string) (string, error) {
+	cid, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return "", err
+	}
+	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
+	if err != nil {
+		return "", err
+	}
+	return containerJSON.NetworkSettings.IPAddress, nil
 }
 
 func (v *VMM) getContainerLabels(containerName string) (map[string]string, error) {
@@ -602,7 +623,7 @@ func (v *VMM) KillTTYProcess(containerName string, cmd string) error {
 // Notice that websockify only listen on eth0 inside of the container which isn't reachable from outside of the host.
 // The caller of this function is responsible to setup a reverse proxy to enable external VNC access.
 func (v *VMM) startVNCProxy(containerName string) error {
-	cfIndex, err := v.getVMInstanceNum(containerName)
+	cfIndex, err := v.GetVMInstanceNum(containerName)
 	if err != nil {
 		return &VMMError{"Failed to get VMInstanceNumber"}
 	}
@@ -620,14 +641,25 @@ func (v *VMM) startVNCProxy(containerName string) error {
 }
 
 func (v *VMM) startADBDaemon(containerName string) error {
-	resp, err := v.ContainerExec(containerName, "adb connect localhost:6520", "vsoc-01")
+	cfIndex, err := v.GetVMInstanceNum(containerName)
+	if err != nil {
+		return &VMMError{"Failed to get VMInstanceNumber"}
+	}
+	adbPort := 6520 + cfIndex - 1
+	ip, err := v.getContainerIP(containerName)
+	if err != nil {
+		return &VMMError{"Failed to get container IP"}
+	}
+	resp, err := v.ContainerExec(containerName, fmt.Sprintf("adb connect %s:%d", ip, adbPort), "root")
 	if err != nil {
 		return err
 	}
 	if resp.ExitCode != 0 {
 		return &VMMError{"Failed to start adb daemon, reason" + resp.errBuffer.String()}
 	}
-	log.Println("adb daemon started")
+	log.Printf("adb daemon connected to %s:%d", ip, adbPort)
+	log.Println("adb stdout:" + resp.outBuffer.String())
+	log.Println("adb stderr:" + resp.outBuffer.String())
 	return nil
 }
 
