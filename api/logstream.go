@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"path"
@@ -19,20 +20,26 @@ func LogStreamHandler(c *gin.Context) {
 	}
 	defer conn.Close()
 
+	containerName := CFPrefix + c.Param("name")
+	cf_index, err := v.GetVMInstanceNum(containerName)
+	if err != nil {
+		log.Println("Failed to obtain cf index due to", err.Error())
+		return
+	}
+
 	var logFile string
 	switch c.Param("source") {
 	case "launcher":
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/launcher.log")
+		logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/launcher.log", cf_index))
 	case "kernel":
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/kernel.log")
+		logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/kernel.log", cf_index))
 	case "logcat":
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/logcat")
+		logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/logcat", cf_index))
 	default:
 		// TODO send error message
 		return
 	}
 
-	containerName := CFPrefix + c.Param("name")
 	cmd := []string{"tail", "+1f", logFile}
 	// run bash in container and get the hijacked session
 	hijackedResp, err := v.ExecAttachToTTYProcess(containerName, cmd, []string{})
