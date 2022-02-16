@@ -2,8 +2,8 @@ import { Drawer, Form, Button, Col, Row, Input, Select, Divider, Steps, message}
 import React, { useState, useCallback, useEffect, useReducer} from 'react';
 import { PlusOutlined, CheckOutlined, LoadingOutlined} from '@ant-design/icons';
 import { WsContext } from '../Context';
-import FileModalForm from './FileModalForm';
 import axios from 'axios';
+import ImagePickerModal from './ImagePickerModal';
 
 const { Option } = Select;
 const { Step } = Steps;
@@ -372,7 +372,7 @@ function NewVMForm(props) {
               </Col>
             </Row>
           </Form>
-          <FileModalForm 
+          <ImagePickerModal 
             visible={fileModalVisible} 
             onCancelCallback={hideFileModal} 
             target={filePickerType}

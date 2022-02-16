@@ -120,12 +120,14 @@ func main() {
 		v1.GET("/vms/:name", getVM)
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
+		v1.POST("/vms/:name/upload", uploadDeviceFile)
+		v1.GET("/vms/:name/apks", getApkFileList)
 		v1.DELETE("/vms/:name", removeVM)
 		v1.GET("/vms/:name/ws", TerminalHandler)           // websocket
 		v1.GET("/vms/:name/log/:source", LogStreamHandler) // websocket
 		v1.GET("/files/system", getSystemImageList)
 		v1.GET("/files/cvd", getCVDImageList)
-		v1.POST("/files/upload", uploadFile)
+		v1.POST("/files/upload", uploadImageFile)
 	}
 	router.Run()
 }
@@ -392,28 +394,23 @@ func removeVM(c *gin.Context) {
 }
 
 func getSystemImageList(c *gin.Context) {
-	var files []string
-
-	err := filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
-		if strings.HasSuffix(path, ".zip") {
-			files = append(files, filepath.Base(path))
-		}
-		return nil
-	})
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"message": err.Error(),
-		})
-		return
-	}
-	c.JSON(200, gin.H{"files": files})
+	getFilesInFolder(c, ".zip", v.UploadDir)
 }
 
 func getCVDImageList(c *gin.Context) {
+	getFilesInFolder(c, ".tar", v.UploadDir)
+}
+
+func getApkFileList(c *gin.Context) {
+	containerName := CFPrefix + c.Param("name")
+	getFilesInFolder(c, ".apk", path.Join(v.DevicesDir, containerName))
+}
+
+func getFilesInFolder(c *gin.Context, fileExtension string, folder string) {
 	var files []string
 
-	err := filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
-		if strings.HasSuffix(path, ".tar") {
+	err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
+		if strings.HasSuffix(path, fileExtension) {
 			files = append(files, filepath.Base(path))
 		}
 		return nil
@@ -427,7 +424,16 @@ func getCVDImageList(c *gin.Context) {
 	c.JSON(200, gin.H{"files": files})
 }
 
-func uploadFile(c *gin.Context) {
+func uploadImageFile(c *gin.Context) {
+	uploadFile(c, []string{".zip", ".tar"}, v.UploadDir)
+}
+
+func uploadDeviceFile(c *gin.Context) {
+	containerName := CFPrefix + c.Param("name")
+	uploadFile(c, []string{".apk"}, path.Join(v.DevicesDir, containerName))
+}
+
+func uploadFile(c *gin.Context, allowedExtensions []string, dstFolder string) {
 	file, err := c.FormFile("file")
 	// The file cannot be received.
 	if err != nil {
@@ -438,27 +444,28 @@ func uploadFile(c *gin.Context) {
 	}
 
 	// Retrieve file information
-	extension := filepath.Ext(file.Filename)
-	log.Println(extension)
-	if extension != ".zip" && extension != ".tar" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-			"error": "Unsupported file formats"},
-		)
-		return
-	}
+	ext := filepath.Ext(file.Filename)
 
-	// The file is received, so let's save it
-	if err := c.SaveUploadedFile(file, v.UploadDir+"/"+file.Filename); err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"message": "Unable to save the file",
-		})
-		return
-	}
+	for _, e := range allowedExtensions {
+		if ext == e {
+			// The file is received, so let's save it
+			if err := c.SaveUploadedFile(file, path.Join(dstFolder, file.Filename)); err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+					"message": "Unable to save the file",
+				})
+				return
+			}
 
-	// File saved successfully. Return proper result
-	c.JSON(http.StatusOK, gin.H{
-		"message": "success",
-	})
+			// File saved successfully. Return proper result
+			c.JSON(http.StatusOK, gin.H{
+				"message": "success",
+			})
+			return
+		}
+	}
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		"error": "Unsupported file formats"},
+	)
 }
 
 func getenv(key, fallback string) string {

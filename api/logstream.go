@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"path"
@@ -44,7 +43,6 @@ func LogStreamHandler(c *gin.Context) {
 
 	// clean up after quit
 	defer func() {
-		fmt.Println("exit log writer" + logFile)
 		hijackedResp.Conn.Write([]byte("exit\r"))
 		if err := v.KillTTYProcess(containerName, strings.Join(cmd, " ")); err != nil {
 			log.Printf("Failed to kill log writer %s of container %s on exit due to %s", logFile, containerName, err.Error())

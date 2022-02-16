@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams, useHistory } from "react-router-dom";
-import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message} from 'antd';
-import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined } from '@ant-design/icons';
+import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message, Modal} from 'antd';
+import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
 import { LazyLog, ScrollFollow } from 'react-lazylog';
 import axios from 'axios';
 
 import WebTerminal from './components/Terminal';
 import VNCDisplay from './components/VNCDisplay';
+import ApkPickerModal from './components/ApkPickerModal';
 
 const { SubMenu } = Menu;
 
@@ -16,6 +17,7 @@ function DeviceDetail(){
   const { device_name, cf_instance } = useParams();
   const [deviceDetail, setDeviceDetail] = useState({});
   const [deviceDescription, setDeviceDescription] = useState("");
+  const [installerModalVisible, setInstallerModalVisible] = useState(false);
   const [menuCurrent, setMenuCurrent] = useState("terminal");
   const [logSource, setLogSource] = useState("launcher")
   const [log, setLog] = useState("");
@@ -38,7 +40,7 @@ function DeviceDetail(){
       title={device_name}
       subTitle={deviceDescription}
       extra={<>
-        <Button icon={<PoweroffOutlined />} key="install-btn">Install APK</Button>
+        <Button icon={<CloudUploadOutlined />} key="install-btn" onClick={showInstallerModal}>Install APK</Button>
         <Button icon={<PoweroffOutlined />} key="power-btn">Power</Button>
       </>}
       {...props}
@@ -98,6 +100,14 @@ function DeviceDetail(){
     }
   },[ws, handleDeviceLog]);
 
+  const showInstallerModal = () => {
+    setInstallerModalVisible(true);
+  };
+
+  const hideInstallerModal = () => {
+    setInstallerModalVisible(false);
+  };
+
   return (
     <div className="site-layout-content">
       <QueueAnim key="content" type={['right', 'left']}>
@@ -146,6 +156,12 @@ function DeviceDetail(){
           </Col>
         </Row>
       </QueueAnim>
+      <ApkPickerModal 
+        visible={installerModalVisible} 
+        onCancelCallback={hideInstallerModal} 
+        deviceName={device_name}
+      />
+
     </div>
   )
 }
