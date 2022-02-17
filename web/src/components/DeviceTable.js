@@ -32,7 +32,16 @@ function DeviceTable(props) {
         render: tags => (
           <>
             {tags.map(tag => {
-              let color = 'green';
+              let color = 'gold';
+              if (tag === 'Android 10') {
+                color = 'cyan';
+              }
+              if (tag === 'Android 11') {
+                color = 'blue';
+              }
+              if (tag === 'Android 12') {
+                color = 'green';
+              }
               if (tag === 'Custom Kernel') {
                 color = 'volcano';
               }

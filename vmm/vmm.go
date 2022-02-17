@@ -179,7 +179,8 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 			"matrisea_device_name":      deviceName,
 			"matrisea_cpu":              strconv.Itoa(cpu),
 			"matrisea_ram":              strconv.Itoa(ram),
-			"matrisea_tag_aosp_version": aospVersion,
+			"matrisea_aosp_version":     aospVersion,
+			"matrisea_tag_aosp_version": aospVersion, // tags are for display only
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -267,23 +268,28 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 	if err != nil {
 		return err
 	}
-	// To show the files that define the flags, run bin/launch_cvd --help
+
+	aospVersion, err := v.GetVMAOSPVersion(containerName)
+	if err != nil {
+		return err
+	}
+	// To show the files that define the flags, run `./bin/launch_cvd --help`
 	//
-	// TODO add support for cvd-host_packages in Android 11 and below
-	// TODO ask user to choose android version when creating CVDs
-	//
-	// Both --vsock_guest_cid and --base_instance_num are required to allow running multiple CVDs in the same host.
-	// However, such flags are only included in the cvd-host_packages.tar since aosp_12_gsi. Supplying the flags
-	// to an image of Android 11 or below will result in error and cause launch_cvd to abort at the start.
+	// vsock and network ports of cuttlefish containers are created in the host's namespace. To avoid conflict and
+	// run multiple CVDs on the same host, we need to define both
+	//    1. --vsock_guest_cid AND
+	//    2. --base_instance_num (added in android_12_gsi for launch_cvd) OR CUTTLEFISH_INSTANCE (as env variable, works for android_gsi_{10-12})
 	launch_cmd := []string{
 		path.Join(HomeDir, "/bin/launch_cvd"),
 		"--nostart_webrtc",
 		"--start_vnc_server",
-		fmt.Sprintf("--base_instance_num=%d", cf_instance), //added in aosp 12 gsi
-		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2), //added in aosp 12 gsi
-		"--report_anonymous_usage_stats=y",                 //added in aosp 12 gsi
+		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2),
 		fmt.Sprintf("--cpus=%s", labels["matrisea_cpu"]),
 		fmt.Sprintf("--memory_mb=%d", memory_gb*1024),
+	}
+
+	if aospVersion == "Android 12" {
+		launch_cmd = append(launch_cmd, "--report_anonymous_usage_stats=y")
 	}
 	log.Println("VMStart cmdline: ", launch_cmd)
 
@@ -295,6 +301,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 		AttachStderr: true,
 		Cmd:          launch_cmd,
 		Tty:          true,
+		Env:          []string{fmt.Sprintf("CUTTLEFISH_INSTANCE=%d", cf_instance)},
 	})
 
 	if err != nil {
@@ -485,11 +492,7 @@ func (v *VMM) countVM() (int, error) {
 }
 
 func (v *VMM) GetVMInstanceNum(containerName string) (int, error) {
-	cid, err := v.getContainerIDByName(containerName)
-	if err != nil {
-		return -1, err
-	}
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
+	containerJSON, err := v.getContainerJSON(containerName)
 	if err != nil {
 		return -1, err
 	}
@@ -500,12 +503,16 @@ func (v *VMM) GetVMInstanceNum(containerName string) (int, error) {
 	return num, nil
 }
 
-func (v *VMM) getContainerIP(containerName string) (string, error) {
-	cid, err := v.getContainerIDByName(containerName)
+func (v *VMM) GetVMAOSPVersion(containerName string) (string, error) {
+	containerJSON, err := v.getContainerJSON(containerName)
 	if err != nil {
 		return "", err
 	}
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
+	return containerJSON.Config.Labels["matrisea_aosp_version"], nil
+}
+
+func (v *VMM) getContainerIP(containerName string) (string, error) {
+	containerJSON, err := v.getContainerJSON(containerName)
 	if err != nil {
 		return "", err
 	}
@@ -513,15 +520,19 @@ func (v *VMM) getContainerIP(containerName string) (string, error) {
 }
 
 func (v *VMM) getContainerLabels(containerName string) (map[string]string, error) {
-	cid, err := v.getContainerIDByName(containerName)
-	if err != nil {
-		return nil, err
-	}
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
+	containerJSON, err := v.getContainerJSON(containerName)
 	if err != nil {
 		return nil, err
 	}
 	return containerJSON.Config.Labels, nil
+}
+
+func (v *VMM) getContainerJSON(containerName string) (types.ContainerJSON, error) {
+	cid, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return types.ContainerJSON{}, err
+	}
+	return v.Client.ContainerInspect(context.Background(), cid)
 }
 
 // Start a bash shell in the container and returns a bi-directional stream for the frontend to interact with.
@@ -877,11 +888,7 @@ func (v *VMM) listCuttlefishContainers() ([]types.Container, error) {
 }
 
 func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
-	containerID, err := v.getContainerIDByName(containerName)
-	if err != nil {
-		return -1, err
-	}
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), containerID)
+	containerJSON, err := v.getContainerJSON(containerName)
 	if err != nil {
 		return -1, err
 	}

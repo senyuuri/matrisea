@@ -26,18 +26,37 @@ func LogStreamHandler(c *gin.Context) {
 		log.Println("Failed to obtain cf index due to", err.Error())
 		return
 	}
+	aospVersion, err := v.GetVMAOSPVersion(containerName)
+	if err != nil {
+		log.Println("Failed to obtain aosp version due to", err.Error())
+		return
+	}
 
 	var logFile string
-	switch c.Param("source") {
-	case "launcher":
-		logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/launcher.log", cf_index))
-	case "kernel":
-		logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/kernel.log", cf_index))
-	case "logcat":
-		logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/logcat", cf_index))
-	default:
-		// TODO send error message
-		return
+	if aospVersion == "Android 10" {
+		switch c.Param("source") {
+		case "launcher":
+			logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime/launcher.log")
+		case "kernel":
+			logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime/kernel.log")
+		case "logcat":
+			logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime/logcat")
+		default:
+			log.Printf("Invalid log source %s on %s", c.Param("source"), containerName)
+			return
+		}
+	} else {
+		switch c.Param("source") {
+		case "launcher":
+			logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/launcher.log", cf_index))
+		case "kernel":
+			logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/kernel.log", cf_index))
+		case "logcat":
+			logFile = path.Join(vmm.HomeDir, fmt.Sprintf("cuttlefish_runtime.%d/logcat", cf_index))
+		default:
+			log.Printf("Invalid log source %s on %s", c.Param("source"), containerName)
+			return
+		}
 	}
 
 	cmd := []string{"tail", "+1f", logFile}

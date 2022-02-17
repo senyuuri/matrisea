@@ -12,7 +12,7 @@
 **Features**
 - Provide high fidelity virtual devices based on android-cuttlefish (crosvm+KVM) that guarantees full fidelity with Android framework
 - Spin up multiple devices on demand and run them remotely or locally
-- Support the latest AOSP and Android mainline kernel up to 5.10
+- Support the latest AOSP (Android 10-12 GSI images) and Android mainline kernel
 - Provision a device with ready-to-use reserving and researching tools e.g. adeb, bcc/eBPF, Frida
 - Android customisation make easy
     - Provide a simple workflow to make your own base device e.g. upload custom kernels/AOSP images or install additional tools
@@ -106,16 +106,3 @@ Matrisea is built on top of a variety of open source technologies.
 - Android OS: AOSP GSI images
 
 ![architecture](./docs/architecture.png)
-
-
-## Known Issues
-### 1. Multi-tenency mode only supports `aosp_12_gsi` images
-The support for multiple Cuttlefish containers concurrently on the same host [[patch](https://android.googlesource.com/device/google/cuttlefish/+/1c0329436e0e2ac2305c6b3445729f30597dccbb%5E%21/)] has only been added to `aosp_12_gsi` branch in the upstream Cuttlefish repo.
-That means for `cvd-host_packages.tar` downloaded from the Android CI, only those from the `aosp_12_gsi` branch can be used to boot more than one Cuttlefish
-containers. In other words, if you wish to start multiple Cuttlefish containers in Matrisea, there is a contraint on the image's Android version
-- For the 1st VM: can be any Android versions 
-- For the 2nd VM and more: must be Android 12 system image with `cvd-host_packages.tar` from `aosp_12_gsi` branch in Android CI
-
-The issue arise from the conflict of vsock ports in a multi-tenent setup. As per the patch above, `launch_cvd` of Cuttlefish must support `--vsock_guest_cid` and `--base_instance_num` to properly bind to a different vsock port. At the point of writing, both flags have yet to be backported to `aosp_11_gsi` and below. 
-
-Matrisea may do the porting future and release our own compiled `cvd-host_packages.tar` but that isn't our focus for now.
