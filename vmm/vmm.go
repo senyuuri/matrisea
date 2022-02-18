@@ -254,7 +254,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 
 // run launch_cvd inside of a running container
 // notice VMStart() doesn't guarentee succeesful VM boot if the boot process takes more than timeout
-func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err error) {
+func (v *VMM) VMStart(containerName string, isAsync bool, options string) error {
 	start := time.Now()
 	cf_instance, err := v.GetVMInstanceNum(containerName)
 	if err != nil {
@@ -350,7 +350,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 				log.Printf("VMStart successfully in %s\n", elapsed)
 				return nil
 			}
-			return &VMMError{msg: "VMStart EOF while reading output"}
+			return &VMMError{msg: "VMStart failed as launch_cvd terminated abnormally"}
 		case <-time.After(TimeoutVMStart):
 			return &VMMError{msg: "VMStart timeout"}
 		}
