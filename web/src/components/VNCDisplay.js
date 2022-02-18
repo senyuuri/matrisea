@@ -1,5 +1,6 @@
 import RFB from '@novnc/novnc/core/rfb';
 import { useEffect, useRef} from 'react';
+import { message } from 'antd';
 
 function VNCDisplay(props){
     const rfb = useRef(null);
@@ -13,9 +14,9 @@ function VNCDisplay(props){
     // This function is called when we are disconnected
     function disconnectedFromServer(e) {
         if (e.detail.clean) {
-            console.log("Disconnected");
+            message.warning("Disconnected from the device's VNC display. Please try refresh the page.", 0)
         } else {
-            console.log("Something went wrong, connection is closed");
+            message.warning("Unable to connect to the device's VNC display. Please try refresh the page.", 0);
         }
     }
 
