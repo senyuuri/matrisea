@@ -77,6 +77,7 @@ type VMItem struct {
 	CFInstance string   `json:"cf_instance"`
 	CPU        int      `json:"cpu"`
 	RAM        int      `json:"ram"`
+	OSVersion  string   `json:"os_version"`
 }
 
 type VMs []VMItem
@@ -500,6 +501,7 @@ func (v *VMM) VMList() (VMs, error) {
 			IP:         c.NetworkSettings.Networks[DefaultNetwork].IPAddress,
 			Status:     status,
 			CFInstance: c.Labels["cf_instance"],
+			OSVersion:  c.Labels["matrisea_aosp_version"],
 			CPU:        cpu,
 			RAM:        ram,
 			Tags:       tags,

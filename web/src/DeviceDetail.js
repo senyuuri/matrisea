@@ -52,11 +52,11 @@ function DeviceDetail(){
     .then(function (response) {
       let deviceDetail = response.data;
       const items = [
+        deviceDetail['os_version'],
         deviceDetail['cpu'] + " vCPU",
         deviceDetail['ram'] + " GB RAM",
         deviceDetail['ip'],
-        "Container ID " + deviceDetail['id'].slice(0,8),
-        "Created at " + new Date(deviceDetail['created'] * 1000).toLocaleString()
+        "Container ID " + deviceDetail['id'].slice(0,8)
       ]
       setDeviceDescription(items.join(" / "))
     })
