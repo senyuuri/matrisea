@@ -139,8 +139,12 @@ function NewVMForm(props) {
 
   // Progress form step 2 to 3
   const viewResults = () => {
-    setCurrentStep(3);
-    setIsMaskClosable(true);
+    if (hasErrorInCreateVMStep) {
+      handleClose();
+    } else {
+      setCurrentStep(3);
+      setIsMaskClosable(true);
+    }
   }
 
   const chooseSystemFile = () => {
@@ -193,7 +197,7 @@ function NewVMForm(props) {
           </div>
           <div id='step-2-buttons' style={{display: currentStep===2 ? 'block' : 'none'}}>
             <Button onClick={handleClose} style={{ marginRight: 8 }}>Continue in background</Button>
-            <Button onClick={viewResults} disabled={!hasVMCreationSucceed}>Next</Button>
+            <Button onClick={viewResults} disabled={!hasVMCreationSucceed}> {hasErrorInCreateVMStep ? "Done" : "Next"}</Button>
           </div>
           <div id='step-3-buttons' style={{display: currentStep===3 ? 'block' : 'none'}}>
             <Button onClick={handleClose} style={{ marginRight: 8 }}>Done</Button>
@@ -300,8 +304,8 @@ function NewVMForm(props) {
                 rules={[{ required: true, message: 'Please enter the size of RAM' }]}
               >
                 <Select placeholder="Please choose the size of RAM">
-                  {new Array(8).fill(null).map((_, index) => {
-                    const key = index + 1;
+                  {new Array(7).fill(null).map((_, index) => {
+                    const key = index + 2;
                     return <Option key={key} value={key}> {key} GB</Option>
                     
                   })}
