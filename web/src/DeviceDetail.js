@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback} from 'react';
 import { useParams, useHistory } from "react-router-dom";
 import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message } from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined, CloudUploadOutlined } from '@ant-design/icons';
@@ -15,7 +15,6 @@ const { SubMenu } = Menu;
 function DeviceDetail(){
   const history = useHistory();
   const { device_name, cf_instance } = useParams();
-  const [deviceDetail, setDeviceDetail] = useState({});
   const [deviceDescription, setDeviceDescription] = useState("");
   const [installerModalVisible, setInstallerModalVisible] = useState(false);
   const [menuCurrent, setMenuCurrent] = useState("terminal");
@@ -51,17 +50,7 @@ function DeviceDetail(){
     var url = API_ENDPOINT + '/vms/' + device_name
     axios.get(url)
     .then(function (response) {
-      setDeviceDetail(response.data);
-    })
-    .catch(function (error) {
-      if (error.response) {
-        message.error("Failed to get device " + device_name + "status due to " + error.response.status + " - " + error.response.data['error']);
-      }
-    })
-  }, [API_ENDPOINT, device_name])
-
-  useEffect(() => {
-    if(Object.keys(deviceDetail).length !== 0){
+      let deviceDetail = response.data;
       const items = [
         deviceDetail['cpu'] + " vCPU",
         deviceDetail['ram'] + " GB RAM",
@@ -70,8 +59,13 @@ function DeviceDetail(){
         "Created at " + new Date(deviceDetail['created'] * 1000).toLocaleString()
       ]
       setDeviceDescription(items.join(" / "))
-    }
-  }, [deviceDetail])
+    })
+    .catch(function (error) {
+      if (error.response) {
+        message.error("Failed to get device " + device_name + "status due to " + error.response.status + " - " + error.response.data['error']);
+      }
+    })
+  }, [API_ENDPOINT, device_name])
 
   const handleMenuClick = (e) => {
     setMenuCurrent(e.key);

@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react';
+import React, {useCallback, useEffect} from 'react';
 import { Route, Switch, useLocation } from 'react-router-dom'
 import { Layout, message } from 'antd';
 import { WsContext } from './Context';
@@ -15,7 +15,7 @@ function App() {
   const location = useLocation()
   const [ws, setWs] = React.useState();
 
-  const connectWs = () => {
+  const connectWs = useCallback(() => {
     const ws = new WebSocket(WS_ENDPOINT);
     ws.onopen = () => {
       console.log("ws opened");
@@ -30,11 +30,11 @@ function App() {
     }
     // ws.onerror = (e) => console.log("ws error", e);
     setWs(ws);
-  }
+  }, [])
   
   useEffect(() => {
     connectWs()
-  }, []);
+  }, [connectWs]);
 
   return (
   <Layout className="layout" style={{ minHeight: "100vh" }}>

@@ -24,7 +24,7 @@ function VNCDisplay(props){
         rfb.current = new RFB(player.current, props.url, {
             wsProtocols: ['binary', 'base64'],
         });
-
+        console.log("new RFB conn")
         // Add listeners to important events from the RFB module
         rfb.current.addEventListener("connect",  connectedToServer);
         rfb.current.addEventListener("disconnect", disconnectedFromServer);
@@ -33,7 +33,7 @@ function VNCDisplay(props){
         rfb.current.viewOnly = false;
         rfb.current.scaleViewport = true;
         rfb.current.showDotCursor = true;
-    }, []);
+    }, [props.url]);
 
     return (
         <div id="vnc-canvas" ref={player}></div>

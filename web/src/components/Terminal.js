@@ -4,19 +4,13 @@ import { FitAddon } from 'xterm-addon-fit';
 import { AttachAddon } from 'xterm-addon-attach';
 
 function WebTerminal(props){
+    //call any method in XTerm.js by using 'xtermRef.current.terminal.abc
     const xtermRef = useRef(null);
     const fitAddon = useMemo(() => new FitAddon(),[]);
     const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1";
     // TODO investigate why attachAddOn will
-    const ws = useMemo(() => new WebSocket(WS_ENDPOINT + "/vms/" + props.deviceName+ "/ws"), [WS_ENDPOINT, props.deviceName]);
+    const ws = useMemo(() => {console.log("new terminal conn"); return new WebSocket(WS_ENDPOINT + "/vms/" + props.deviceName+ "/ws")}, [WS_ENDPOINT, props.deviceName]);
     const attachAddon = useMemo(() => new AttachAddon(ws),[ws]);
-    
-    useEffect(() => {
-        if(!props.isHidden){
-            fitAddon.fit();
-        }
-        // call any method in XTerm.js by using 'xtermRef.current.terminal.[Whatever you want to call]
-    },[])
 
     const resizeCallback = useCallback(() => {
         if (!props.isHidden) {
