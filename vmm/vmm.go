@@ -13,8 +13,10 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -57,6 +59,7 @@ type VMM struct {
 	DevicesDir string
 	DBDir      string
 	UploadDir  string
+	createMu   sync.Mutex // for concurrent CreateVM() call
 }
 
 type VMMError struct {
@@ -156,15 +159,24 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 	ctx := context.Background()
 	containerName := CFPrefix + deviceName
 
+	// There will be a race condition on cfInstance if VMCreate() is called multiple times.
+	// More specifically, findNextAvailableCFInstanceNumber() reads labels from existings containers.
+	// If VMCreate() is called twice, both will get the same next available cf_instance as they both see the
+	// same set of containers. By locking createMu, we ensure that one of the VMCreate() call
+	// always complete first and finish creating a new container, so this new container will be counted towards the
+	// next findNextAvailableCFInstanceNumber() call.
+	v.createMu.Lock()
+	defer v.createMu.Unlock()
+
 	// The next available index of cuttlefish VM. Always >= 1.
 	// It is important for us to keep tracking of this index as cuttlefish use it to derive different
 	// vsock ports for each instance in launch_cvd
-	vmCount, err := v.countVM()
+	cfInstance, err := v.findNextAvailableCFInstanceNumber()
+	log.Printf("VMCreate: next available cf_instance %d", cfInstance)
 	if err != nil {
 		return "", err
 	}
-	cfIndex := vmCount + 1
-	websockifyPort, err := nat.NewPort("tcp", strconv.Itoa(6080+cfIndex-1))
+	websockifyPort, err := nat.NewPort("tcp", strconv.Itoa(6080+cfInstance-1))
 	if err != nil {
 		return "", err
 	}
@@ -173,7 +185,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":               strconv.Itoa(cfIndex),
+			"cf_instance":               strconv.Itoa(cfInstance),
 			"n_cf_instances":            "1",
 			"vsock_guest_cid":           "true",
 			"matrisea_device_name":      deviceName,
@@ -216,7 +228,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 				{
 					// expose websockify port
 					HostIP:   "0.0.0.0",
-					HostPort: strconv.Itoa(6080 + cfIndex - 1),
+					HostPort: strconv.Itoa(6080 + cfInstance - 1),
 				},
 			},
 		},
@@ -237,19 +249,25 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 	if err := v.Client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return "", err
 	}
-	// start auxillary deamons
-	err = v.installTools(containerName)
+
+	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfInstance)
+
+	return containerName, nil
+}
+
+// Install necessary tools and start auxillary deamons in the VM's container
+func (v *VMM) VMPreBootSetup(deviceName string) error {
+	containerName := CFPrefix + deviceName
+
+	err := v.installTools(containerName)
 	if err != nil {
-		return "", err
+		return err
 	}
 	err = v.startVNCProxy(containerName)
 	if err != nil {
-		return "", err
+		return err
 	}
-
-	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfIndex)
-
-	return containerName, nil
+	return nil
 }
 
 // Run launch_cvd inside of a running container.
@@ -263,7 +281,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 // message from the launcher. The callback function can be used to stream live launch_cvd stdout/stderr.
 func (v *VMM) VMStart(containerName string, isAsync bool, options string, callback func(string)) error {
 	start := time.Now()
-	cf_instance, err := v.GetVMInstanceNum(containerName)
+	cf_instance, err := v.GetContainerCFInstanceNumber(containerName)
 	if err != nil {
 		return err
 	}
@@ -293,6 +311,8 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2),
 		fmt.Sprintf("--cpus=%s", labels["matrisea_cpu"]),
 		fmt.Sprintf("--memory_mb=%d", memory_gb*1024),
+		"--guest_audit_security=false",
+		"--guest_enforce_security=false",
 	}
 
 	if aospVersion == "Android 12" {
@@ -488,15 +508,35 @@ func (v *VMM) VMList() (VMs, error) {
 	return resp, nil
 }
 
-func (v *VMM) countVM() (int, error) {
+func (v *VMM) findNextAvailableCFInstanceNumber() (int, error) {
 	cfList, err := v.listCuttlefishContainers()
 	if err != nil {
 		return -1, err
 	}
-	return len(cfList), nil
+	indexes := []int{}
+	for _, c := range cfList {
+		cf_idx, err := strconv.Atoi(c.Labels["cf_instance"])
+		if err != nil {
+			return -1, err
+		}
+		indexes = append(indexes, cf_idx)
+	}
+	sort.Ints(indexes)
+	// if all cf_instance numbers so far are continuous
+	if indexes[len(indexes)-1] == len(cfList) {
+		return len(cfList) + 1, nil
+	} else {
+		i := 1
+		for {
+			if indexes[i-1] != i {
+				return i, nil
+			}
+			i = i + 1
+		}
+	}
 }
 
-func (v *VMM) GetVMInstanceNum(containerName string) (int, error) {
+func (v *VMM) GetContainerCFInstanceNumber(containerName string) (int, error) {
 	containerJSON, err := v.getContainerJSON(containerName)
 	if err != nil {
 		return -1, err
@@ -640,7 +680,7 @@ func (v *VMM) KillTTYProcess(containerName string, cmd string) error {
 // Notice that websockify only listen on eth0 inside of the container which isn't reachable from outside of the host.
 // The caller of this function is responsible to setup a reverse proxy to enable external VNC access.
 func (v *VMM) startVNCProxy(containerName string) error {
-	cfIndex, err := v.GetVMInstanceNum(containerName)
+	cfIndex, err := v.GetContainerCFInstanceNumber(containerName)
 	if err != nil {
 		return &VMMError{"Failed to get VMInstanceNumber"}
 	}
@@ -661,7 +701,7 @@ func (v *VMM) startVNCProxy(containerName string) error {
 // The function should be called when VM has booted up and started listening on the adb port
 // The function is safe to be called repeatedly as adb will ignore duplicated connect commands and return "already connected"
 func (v *VMM) startADBDaemon(containerName string) error {
-	cfIndex, err := v.GetVMInstanceNum(containerName)
+	cfIndex, err := v.GetContainerCFInstanceNumber(containerName)
 	if err != nil {
 		return &VMMError{"Failed to get VMInstanceNumber"}
 	}

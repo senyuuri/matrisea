@@ -20,7 +20,7 @@ function DeviceDetail(){
   const [installerModalVisible, setInstallerModalVisible] = useState(false);
   const [menuCurrent, setMenuCurrent] = useState("terminal");
   const [logSource, setLogSource] = useState("launcher")
-  const [log, setLog] = useState("");
+  const [log, setLog] = useState("Waiting for log stream...");
 
   const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1";
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"

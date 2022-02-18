@@ -327,6 +327,11 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: "+err.Error())
 		return
 	}
+	err = v.VMPreBootSetup(req.DeviceName)
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to complete pre-boot setup. Reason: "+err.Error())
+		return
+	}
 	wsCreateVMCompleteStep(c, STEP_CREATE_VM)
 
 	// 4 - STEP_LOAD_IMAGES

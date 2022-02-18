@@ -68,6 +68,7 @@ function NewVMForm(props) {
     setHasErrorInCreateVMStep(false);
     setHasVMCreationSucceed(false);
     setStepMessages({type:"reset"});
+    setLog("Waiting for device to boot...");
   },[form]);
 
   const handleWSMessage = useCallback((e) => {
