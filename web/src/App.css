@@ -66,3 +66,15 @@
   margin-left: 5px;
   margin-top: -2px;
 }
+
+#start-vm-log {
+  padding-top: 20px
+}
+
+.react-lazylog div div span {
+  padding-left: 10px;
+}
+
+.react-lazylog div div a {
+  display: none;
+}

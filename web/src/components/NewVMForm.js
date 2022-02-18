@@ -1,8 +1,10 @@
 import { Drawer, Form, Button, Col, Row, Input, Select, Divider, Steps, message} from 'antd';
 import React, { useState, useCallback, useEffect, useReducer} from 'react';
 import { PlusOutlined, CheckOutlined, LoadingOutlined} from '@ant-design/icons';
-import { WsContext } from '../Context';
+import { LazyLog, ScrollFollow } from 'react-lazylog';
 import axios from 'axios';
+
+import { WsContext } from '../Context';
 import ImagePickerModal from './ImagePickerModal';
 
 const { Option } = Select;
@@ -28,6 +30,7 @@ function NewVMForm(props) {
   const [cvdImageIcon, setCvdImageIcon] = useState('PlusOutlined');
 
   // State of Step 2 - VM Creation Progress
+  const [log, setLog] = useState("Waiting for device to boot...");
   const [fileModalVisible, setFileModalVisible] = useState(false);
   const [filePickerType, setFilePickerType] = useState('System');
   const [fileList, setFileList] = useState([]);
@@ -90,6 +93,10 @@ function NewVMForm(props) {
           setHasVMCreationSucceed(true);
         }
       }
+    }
+    // type 3: WS_TYPE_CREATE_VM_LOG
+    else if (msg.type === 3) {
+      setLog( prevLog => {return prevLog +"\n"+ msg.data.log});
     }
   },[stepStartTime]);
 
@@ -397,6 +404,15 @@ function NewVMForm(props) {
             />
           ))}
         </Steps>
+
+        <h4 style={{paddingTop:'20px'}}>Device Log</h4>
+        <ScrollFollow
+          id="start-vm-log"
+          startFollowing={true}
+          render={({ follow, onScroll }) => (
+            <LazyLog height={300} text={log} stream follow={follow} onScroll={onScroll} />
+          )}
+        />
       </div>
 
       <div id='step-3-div' style={{display: currentStep===3 ? 'block' : 'none'}}>

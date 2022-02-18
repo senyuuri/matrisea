@@ -50,6 +50,7 @@ const (
 	WS_TYPE_LIST_VM WsMessageType = iota
 	WS_TYPE_CREATE_VM
 	WS_TYPE_INSTALL_APK
+	WS_TYPE_CREATE_VM_LOG
 	WS_TYPE_UNKNOWN
 )
 
@@ -113,6 +114,12 @@ type InstallAPKResponse struct {
 }
 
 func (r *InstallAPKResponse) AbstractResponseBodyMethod() {}
+
+type CreateVMLogResponse struct {
+	Log string `json:"log"`
+}
+
+func (r *CreateVMLogResponse) AbstractResponseBodyMethod() {}
 
 func main() {
 	var err error
@@ -365,7 +372,14 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	wsCreateVMCompleteStep(c, STEP_LOAD_IMAGES)
 
 	// 5 - STEP_START_VM
-	err = v.VMStart(containerName, false, "")
+	err = v.VMStart(containerName, false, "", func(out string) {
+		c.send <- &WebSocketResponse{
+			Type: WS_TYPE_CREATE_VM_LOG,
+			Data: &CreateVMLogResponse{
+				Log: out,
+			},
+		}
+	})
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_START_VM, "VM failed to start. Reason: "+err.Error())
 		return
@@ -414,7 +428,7 @@ func getVM(c *gin.Context) {
 func startVM(c *gin.Context) {
 	name := CFPrefix + c.Param("name")
 	// TODO add default options
-	if err := v.VMStart(name, true, ""); err != nil {
+	if err := v.VMStart(name, true, "", func(string) {}); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

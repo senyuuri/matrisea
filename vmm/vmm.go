@@ -252,9 +252,16 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 	return containerName, nil
 }
 
-// run launch_cvd inside of a running container
-// notice VMStart() doesn't guarentee succeesful VM boot if the boot process takes more than timeout
-func (v *VMM) VMStart(containerName string, isAsync bool, options string) error {
+// Run launch_cvd inside of a running container.
+// Notice VMStart() doesn't guarentee succeesful VM boot. If launch_cvd takes more time than the timeout limit,
+// launch_cvd will continue in the background and VMStart will return a timeout error.
+//
+// If isAsync is set to ture, we wait for the VM to boot, read stdout continuously, and return success only until we see
+// VIRTUAL_DEVICE_BOOT_COMPLETED in the log. This mode is only used at VM creation time to ensure the new VM can
+// boot successfuly for the first time.
+// When isAysnc is true, the caller can supply a callback functions, which will be called to every time there's new console
+// message from the launcher. The callback function can be used to stream live launch_cvd stdout/stderr.
+func (v *VMM) VMStart(containerName string, isAsync bool, options string, callback func(string)) error {
 	start := time.Now()
 	cf_instance, err := v.GetVMInstanceNum(containerName)
 	if err != nil {
@@ -325,9 +332,6 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) error 
 		}
 	}()
 
-	// If isAsync is ture, we wait for the VM to boot, read stdout continuously, and return success only until we see
-	// VIRTUAL_DEVICE_BOOT_COMPLETED in the log. This mode is only used at VM creation time to ensure the new VM can
-	// boot successfuly for the first time.
 	if !isAsync {
 		outputDone := make(chan int)
 
@@ -336,6 +340,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) error 
 			for scanner.Scan() {
 				line := scanner.Text()
 				fmt.Println(line)
+				callback(line)
 				if strings.Contains(line, "VIRTUAL_DEVICE_BOOT_COMPLETED") {
 					outputDone <- 1
 				}
