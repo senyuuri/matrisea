@@ -34,7 +34,7 @@ func LogStreamHandler(c *gin.Context) {
 		return
 	}
 
-	cmd := []string{"tail", "+1f", logFile}
+	cmd := []string{"tail", "-n", "2000", "-f", logFile}
 	// run bash in container and get the hijacked session
 	hijackedResp, err := v.ExecAttachToTTYProcess(containerName, cmd, []string{})
 	if err != nil {
