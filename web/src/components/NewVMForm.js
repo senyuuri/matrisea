@@ -30,7 +30,7 @@ function NewVMForm(props) {
   const [cvdImageIcon, setCvdImageIcon] = useState('PlusOutlined');
 
   // State of Step 2 - VM Creation Progress
-  const [log, setLog] = useState("Waiting for device to boot...");
+  const [log, setLog] = useState("Waiting for device...");
   const [fileModalVisible, setFileModalVisible] = useState(false);
   const [filePickerType, setFilePickerType] = useState('System');
   const [fileList, setFileList] = useState([]);
@@ -68,7 +68,7 @@ function NewVMForm(props) {
     setHasErrorInCreateVMStep(false);
     setHasVMCreationSucceed(false);
     setStepMessages({type:"reset"});
-    setLog("Waiting for device to boot...");
+    setLog("Waiting for device...");
   },[form]);
 
   const handleWSMessage = useCallback((e) => {

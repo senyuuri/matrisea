@@ -327,6 +327,8 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: "+err.Error())
 		return
 	}
+	wsCreateVMLog(c, "Created device container "+containerName)
+	wsCreateVMLog(c, "Running pre-boot setup...")
 	err = v.VMPreBootSetup(req.DeviceName)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to complete pre-boot setup. Reason: "+err.Error())
@@ -358,17 +360,20 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	//
 
 	// Load system image (.zip) and unzip in the container
+	wsCreateVMLog(c, "Loading system image "+req.SystemImage+"...")
 	err = v.VMLoadFile(containerName, systemImagePath)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
 		return
 	}
+	wsCreateVMLog(c, "Unzipping system image "+req.SystemImage+"...")
 	err = v.VMUnzipImage(containerName, req.SystemImage)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to unzip system iamge. Reason: "+err.Error())
 		return
 	}
 	// Load CVD image (.tar)
+	wsCreateVMLog(c, "Loading CVD image "+req.CVDImage+"...")
 	err = v.VMLoadFile(containerName, cvdImagePath)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
@@ -377,13 +382,8 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	wsCreateVMCompleteStep(c, STEP_LOAD_IMAGES)
 
 	// 5 - STEP_START_VM
-	err = v.VMStart(containerName, false, "", func(out string) {
-		c.send <- &WebSocketResponse{
-			Type: WS_TYPE_CREATE_VM_LOG,
-			Data: &CreateVMLogResponse{
-				Log: out,
-			},
-		}
+	err = v.VMStart(containerName, false, "", func(lines string) {
+		wsCreateVMLog(c, lines)
 	})
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_START_VM, "VM failed to start. Reason: "+err.Error())
@@ -411,6 +411,15 @@ func wsCreateVMFailStep(c *Connection, step CreateVMStep, errorMsg string) {
 		},
 		HasError: true,
 		ErrorMsg: errorMsg,
+	}
+}
+
+func wsCreateVMLog(c *Connection, lines string) {
+	c.send <- &WebSocketResponse{
+		Type: WS_TYPE_CREATE_VM_LOG,
+		Data: &CreateVMLogResponse{
+			Log: lines,
+		},
 	}
 }
 
