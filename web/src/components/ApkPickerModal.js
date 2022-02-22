@@ -106,7 +106,7 @@ const ApkPickerModal = ({ visible, onCancelCallback, deviceName }) => {
     }, [visible, API_ENDPOINT, deviceName])
 
     return (
-        <Modal title="Choose/Upload APK file" visible={visible} onOk={onOk} onCancel={onCancel}>
+        <Modal destroyOnClose={true} title="Choose/Upload APK file" visible={visible} onOk={onOk} onCancel={onCancel}>
             <Tabs defaultActiveKey="1">
                 <TabPane tab="Choose file on server" key="1">
                 <Form form={form} layout="vertical" name="fileForm">

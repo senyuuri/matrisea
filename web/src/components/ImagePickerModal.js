@@ -43,7 +43,7 @@ const ImagePickerModal = ({ visible, onCancelCallback, target, fileList }) => {
     }
 
     return (
-        <Modal title={"Select " +target +" File"} visible={visible} onOk={onOk} onCancel={onCancel}>
+        <Modal destroyOnClose={true} title={"Select " +target +" File"} visible={visible} onOk={onOk} onCancel={onCancel}>
             <Tabs defaultActiveKey="1">
                 <TabPane tab="Choose Image" key="1">
                     <Form form={form} layout="vertical" name="fileForm">
