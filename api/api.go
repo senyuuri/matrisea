@@ -144,6 +144,8 @@ func main() {
 		v1.POST("/vms/:name/stop", stopVM)
 		v1.POST("/vms/:name/upload", uploadDeviceFile)
 		v1.GET("/vms/:name/apks", getApkFileList)
+		v1.GET("/vms/:name/dir", getWorkspaceFileList)
+		v1.GET("/vms/:name/files", downloadWorkspaceFile)
 		v1.DELETE("/vms/:name", removeVM)
 		v1.GET("/vms/:name/ws", TerminalHandler)           // websocket
 		v1.GET("/vms/:name/log/:source", LogStreamHandler) // websocket
@@ -540,6 +542,28 @@ func uploadFile(c *gin.Context, allowedExtensions []string, dstFolder string) {
 	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 		"error": "Unsupported file formats"},
 	)
+}
+
+func getWorkspaceFileList(c *gin.Context) {
+	containerName := CFPrefix + c.Param("name")
+	p := c.DefaultQuery("path", "")
+	if p == "" {
+		log.Println("Error : empty query string")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
+		return
+	}
+	files, err := v.GetFileListInContainerFolder(containerName, p)
+	if err != nil {
+		log.Println(err.Error())
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
+		return
+	}
+	c.JSON(200, gin.H{"files": files})
+}
+
+// TODO
+func downloadWorkspaceFile(c *gin.Context) {
+
 }
 
 func getenv(key, fallback string) string {

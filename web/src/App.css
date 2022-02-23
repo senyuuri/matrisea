@@ -86,3 +86,11 @@
 .react-lazylog div div a {
   display: none;
 }
+
+.file-explorer .ant-table-cell {
+  padding: 5px 10px;
+} 
+
+.file-explorer button {
+  padding: 4px 0;
+}

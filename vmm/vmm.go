@@ -969,14 +969,23 @@ func (v *VMM) isCuttlefishContainer(container types.Container) bool {
 	return false
 }
 
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-func getRandomSequence(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
+// Get a list of files in the given container's path, equivalent to running find {folder} -maxdepth 1 -printf "%M|%u|%g|%s|%A@|%P\n"
+// Results are of the following format which each line represents a file/folder
+// -rw-r--r--|vsoc-01|vsoc-01|65536|1645183964.5579601750|vbmeta.img
+func (v *VMM) GetFileListInContainerFolder(containerName string, folder string) ([]string, error) {
+	folder = path.Clean(folder)
+	resp, err := v.ContainerExec(containerName, "find "+folder+" -maxdepth 1 -printf \"%M|%u|%g|%s|%A@|%P\n\" | sort -t '|' -k6", "vsoc-01")
+	if err != nil || resp.ExitCode != 0 {
+		return []string{}, err
 	}
-	return string(b)
+	lines := strings.Split(resp.outBuffer.String(), "\n")
+	// remove the parent folder's record in the first line
+	return lines[:len(lines)-1], nil
+}
+
+// TODO
+func (v *VMM) GetFileInContainer(containerName string, filePath string) ([]byte, error) {
+	return []byte{}, nil
 }
 
 func init() {

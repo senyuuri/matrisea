@@ -9,6 +9,7 @@ import axios from 'axios';
 import WebTerminal from './components/Terminal';
 import VNCDisplay from './components/VNCDisplay';
 import ApkPickerModal from './components/ApkPickerModal';
+import FileExplorer from './components/FileExplorer';
 
 const { SubMenu } = Menu;
 
@@ -129,6 +130,9 @@ function DeviceDetail(){
                 <Menu.Item key="log:kernel">Kernel</Menu.Item>
                 <Menu.Item key="log:logcat" disabled={true}>ADB Logcat</Menu.Item>
               </SubMenu>
+              <Menu.Item key="files" icon={<SettingOutlined />}>
+                Files
+              </Menu.Item>
               <Menu.Item key="settings" icon={<SettingOutlined />}>
                 Settings
               </Menu.Item>
@@ -146,6 +150,9 @@ function DeviceDetail(){
             </div>
             <div id="menu-content-settings" style={{display: menuCurrent==="settings" ? 'block' : 'none'}}>
               <p>Nothing to setup</p>
+            </div>
+            <div id="menu-content-settings" style={{display: menuCurrent==="files" ? 'block' : 'none'}}>
+              <FileExplorer deviceName={device_name}/>
             </div>
           </Col>
         </Row>
