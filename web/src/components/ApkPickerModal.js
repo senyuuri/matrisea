@@ -123,7 +123,7 @@ const ApkPickerModal = ({ visible, onCancelCallback, deviceName }) => {
                 <TabPane tab="Upload" key="2">
                     <Dragger {...draggerProps}>
                         <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-                        <p className="ant-upload-text">Click or drag .apk to this area to upload</p>
+                        <p className="ant-upload-text">Click or drag .apk here to upload</p>
                     </Dragger>
                 </TabPane>
             </Tabs>
