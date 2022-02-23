@@ -563,7 +563,21 @@ func getWorkspaceFileList(c *gin.Context) {
 
 // TODO
 func downloadWorkspaceFile(c *gin.Context) {
-
+	containerName := CFPrefix + c.Param("name")
+	p := c.DefaultQuery("path", "")
+	if p == "" {
+		log.Println("Error : empty query string")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
+		return
+	}
+	fileBytes, err := v.GetFileInContainer(containerName, p)
+	if err != nil {
+		log.Println(err.Error())
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(p)))
+	c.Data(http.StatusOK, "application/octet-stream", fileBytes)
 }
 
 func getenv(key, fallback string) string {

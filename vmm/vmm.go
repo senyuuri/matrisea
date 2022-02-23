@@ -1,10 +1,12 @@
 package vmm
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -979,13 +981,40 @@ func (v *VMM) GetFileListInContainerFolder(containerName string, folder string) 
 		return []string{}, err
 	}
 	lines := strings.Split(resp.outBuffer.String(), "\n")
-	// remove the parent folder's record in the first line
+	// remove the last empty line due to split
 	return lines[:len(lines)-1], nil
 }
 
-// TODO
+// Get content of a file in the container, in the form of bytes
+// Due to CopyFromContainer()'s limitation we can only get a single file as tar archive so we have to untar it in memory
 func (v *VMM) GetFileInContainer(containerName string, filePath string) ([]byte, error) {
-	return []byte{}, nil
+	id, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return []byte{}, err
+	}
+	log.Printf("Copying file %s in container %s", filePath, containerName)
+	reader, _, err := v.Client.CopyFromContainer(context.TODO(), id, filePath)
+	if err != nil {
+		log.Println(err.Error())
+	}
+	tr := tar.NewReader(reader)
+
+	// first param is the header of the tar file
+	_, err = tr.Next()
+	if err == io.EOF {
+		// end of tar archive
+		log.Printf("Failed to read file %s in container %s because tar is empty", filePath, containerName)
+		return []byte{}, err
+	}
+	if err != nil {
+		log.Printf("Failed to read file %s in container %s because %s", filePath, containerName, err.Error())
+		return []byte{}, err
+	}
+	buf := new(bytes.Buffer)
+	// TODO don't untar large files. Return tar directly
+	buf.ReadFrom(tr)
+	log.Printf("Read file %s in container %s, size %d", filePath, containerName, buf.Len())
+	return buf.Bytes(), nil
 }
 
 func init() {

@@ -42,7 +42,8 @@ function FileExplorer({deviceName}) {
             if(row['permission'][0] === "d") {
                 return <Button type="link" onClick={()=> gotoDir(dir + "/"+ row['filename'])}> {row['filename']}</Button>
             }
-            return <Button type="link" style={{color: 'black'}}> {row['filename']}</Button>
+            var fileLink = API_ENDPOINT + '/vms/' + deviceName + '/files?path=' + encodeURIComponent(dir + "/"+ row['filename']);
+            return <Button type="link" style={{color: 'black'}} href={fileLink}> {row['filename']}</Button>
         }
       },
   ];
@@ -105,7 +106,7 @@ function FileExplorer({deviceName}) {
       columns={columns} 
       dataSource={tableData} 
       pagination={false} 
-      scroll={{ y: 650 }}
+      scroll={{ y: 640 }}
     //   loading={props.isLoading}
     />
   </div>
