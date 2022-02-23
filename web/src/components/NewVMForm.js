@@ -25,9 +25,9 @@ function NewVMForm(props) {
 
   // State of Step 1 - New VM Form
   const [systemImageButtonText, setSystemImageButtonText] = useState('Select File');
-  const [systemImageIcon, setSystemImageIcon] = useState('PlusOutlined');
+  const [hasChosenSystemImage, setHasChosenSystemImage] = useState(false);
   const [cvdImageButtonText, setCvdImageButtonText] = useState('Select File');
-  const [cvdImageIcon, setCvdImageIcon] = useState('PlusOutlined');
+  const [hasChosenCVDImage, setHasChosenCVDImage] = useState(false);
 
   // State of Step 2 - VM Creation Progress
   const [log, setLog] = useState("Waiting for device...");
@@ -59,9 +59,9 @@ function NewVMForm(props) {
   const resetForm = useCallback(() => {
     form.resetFields();
     setSystemImageButtonText('Select File');
-    setSystemImageIcon('PlusOutlined');
+    setHasChosenSystemImage(false);
     setCvdImageButtonText('Select File');
-    setCvdImageIcon('PlusOutlined');
+    setHasChosenCVDImage(false);
     setCurrentStep(1);
     setCurrentCreateVMStep(0);
     setIsMaskClosable(true);
@@ -234,7 +234,7 @@ function NewVMForm(props) {
                   values.filename = values.filename.slice(0,15) + "..." + values.filename.slice(-12)
                 } 
                 setSystemImageButtonText(values.filename);
-                setSystemImageIcon('CheckOutlined');
+                setHasChosenSystemImage(true);
               }
               else if (filePickerType === "CVD") {
                 mainForm.setFieldsValue({
@@ -244,7 +244,7 @@ function NewVMForm(props) {
                   values.filename = values.filename.slice(0,15) + "..." + values.filename.slice(-12)
                 } 
                 setCvdImageButtonText(values.filename);
-                setCvdImageIcon('CheckOutlined');
+                setHasChosenCVDImage(true);
               }
               fileForm.resetFields();
               setFileModalVisible(false);
@@ -336,10 +336,11 @@ function NewVMForm(props) {
                   </Form.Item>
                   <Form.Item noStyle>
                   <Button
-                    type="dashed"
+                    className={hasChosenSystemImage ? "file-btn-chosen" :""}
+                    type={hasChosenSystemImage ? "" : "dashed"}
                     onClick={chooseSystemFile}
-                    style={{ width: '100%' }}
-                    icon={ systemImageIcon === 'PlusOutlined'?<PlusOutlined />:<CheckOutlined/>}
+                    style={{ width: '100%'}}
+                    icon={ hasChosenSystemImage ? <CheckOutlined/> : <PlusOutlined />}
                   >
                     {systemImageButtonText}
                   </Button>
@@ -357,10 +358,11 @@ function NewVMForm(props) {
                   </Form.Item>
                   <Form.Item noStyle>
                     <Button
-                      type="dashed"
+                      className={hasChosenCVDImage ? "file-btn-chosen" :""}
+                      type={hasChosenCVDImage ? "" : "dashed"}
                       onClick={chooseCVDFile}
                       style={{ width: '100%' }}
-                      icon={ cvdImageIcon === 'PlusOutlined'?<PlusOutlined />:<CheckOutlined/>}
+                      icon={ hasChosenCVDImage ?<CheckOutlined/>:<PlusOutlined />}
                     >
                       {cvdImageButtonText}  
                     </Button>

@@ -41,6 +41,14 @@
   height: 40px;
 }
 
+.file-btn-chosen {
+  border-color:  #389e0d;
+}
+
+.file-btn-chosen span{
+  color: #389e0d;
+}
+
 .ant-page-header {
   padding-left: 0;
   padding-right: 0;
