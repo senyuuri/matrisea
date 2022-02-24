@@ -12,6 +12,7 @@ import ApkPickerModal from './components/ApkPickerModal';
 import FileExplorer from './components/FileExplorer';
 
 const { SubMenu } = Menu;
+const LOG_SIZE_LIMIT = 1024 * 100;
 
 function DeviceDetail(){
   const history = useHistory();
@@ -20,7 +21,7 @@ function DeviceDetail(){
   const [installerModalVisible, setInstallerModalVisible] = useState(false);
   const [menuCurrent, setMenuCurrent] = useState("terminal");
   const [logSource, setLogSource] = useState("launcher")
-  const [log, setLog] = useState("Waiting for log stream...");
+  const [log, setLog] = useState("Waiting for log stream...\n");
 
   const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1";
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"
@@ -83,7 +84,13 @@ function DeviceDetail(){
   };
   
   const handleDeviceLog = useCallback((e) => {
-    setLog( prevLog => {return prevLog + e.data});
+    setLog( prevLog => {
+      // truncate log cache if it exceeds LOG_SIZE_LIMIT
+      if (prevLog.length > LOG_SIZE_LIMIT) {
+        return (prevLog + e.data).slice(-LOG_SIZE_LIMIT);
+      }
+      setLog( prevLog => {return prevLog + e.data});
+    });
   }, []);
 
   useEffect(() => {
@@ -91,6 +98,7 @@ function DeviceDetail(){
       ws.addEventListener("message", handleDeviceLog);
       return () => {
         ws.removeEventListener("message", handleDeviceLog);
+        ws.close();
       }
     }
   },[ws, handleDeviceLog]);
@@ -141,6 +149,8 @@ function DeviceDetail(){
               <WebTerminal deviceName={device_name} isHidden={menuCurrent==="terminal" ? false : true}/>
             </div>
             <div id="menu-content-log" style={{display: menuCurrent.startsWith("log") ? 'block' : 'none', height: "100%"}}>
+              {/* // TODO ScrollFollow is not working probably known bug pending PR merge
+                  // https://github.com/mozilla-frontend-infra/react-lazylog/pull/41/files */}
               <ScrollFollow
                 startFollowing={true}
                 render={({ follow, onScroll }) => (
