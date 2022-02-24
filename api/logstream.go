@@ -5,10 +5,15 @@ import (
 	"log"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"sea.com/matrisea/vmm"
+)
+
+var (
+	LOG_BUF_SIZE = 1024 * 128
 )
 
 func LogStreamHandler(c *gin.Context) {
@@ -64,18 +69,60 @@ func LogStreamHandler(c *gin.Context) {
 	wsLogReaderCopy(conn, hijackedResp.Conn)
 }
 
+type LogStream struct {
+	buf    string
+	length int
+}
+
+// Buffer log and send in batches. The log is flushed to WS writer when either
+// (sendBuf is full) OR (sendBuf isn't full && timer's up && there's unsent log in sendBuf)
 func wsLogWriterCopy(writer *websocket.Conn, reader io.Reader) {
-	buf := make([]byte, 8192)
-	for {
-		nr, err := reader.Read(buf)
-		if err != nil {
-			return
-		}
-		if nr > 0 {
-			cleanLog := strings.ReplaceAll(string(buf[0:nr]), "\r", "")
-			err := writer.WriteMessage(websocket.TextMessage, []byte(cleanLog))
+	readBuf := make([]byte, LOG_BUF_SIZE)
+	sendBuf := ""
+	ch := make(chan LogStream)
+
+	go func() {
+		defer close(ch)
+		for {
+			nr, err := reader.Read(readBuf)
 			if err != nil {
 				return
+			}
+			if nr > 0 {
+				cleanLog := strings.ReplaceAll(string(readBuf[0:nr]), "\r", "")
+				ch <- LogStream{
+					buf:    cleanLog,
+					length: nr,
+				}
+			}
+		}
+	}()
+
+	for {
+		select {
+		case logStream, ok := <-ch:
+			if !ok {
+				return
+			}
+			sendBuf = sendBuf + logStream.buf
+			// fmt.Printf("sendBuf size %d, log size %d, is_sending %t\n", len(sendBuf), logStream.length, len(sendBuf) > LOG_BUF_SIZE)
+			if len(sendBuf) > LOG_BUF_SIZE {
+				err := writer.WriteMessage(websocket.TextMessage, []byte(sendBuf))
+				if err != nil {
+					return
+				}
+				sendBuf = ""
+				// fmt.Printf("Full send. Reset sendBuf size %d\n", len(sendBuf))
+			}
+		case <-time.After(2 * time.Second):
+			// process whatever we have seen so far if the batch size isn't filled in 3 secs
+			if len(sendBuf) != 0 {
+				err := writer.WriteMessage(websocket.TextMessage, []byte(sendBuf))
+				if err != nil {
+					return
+				}
+				sendBuf = ""
+				// fmt.Printf("Timeout send. Reset sendBuf size %d\n", len(sendBuf))
 			}
 		}
 	}

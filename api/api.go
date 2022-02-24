@@ -561,7 +561,6 @@ func getWorkspaceFileList(c *gin.Context) {
 	c.JSON(200, gin.H{"files": files})
 }
 
-// TODO
 func downloadWorkspaceFile(c *gin.Context) {
 	containerName := CFPrefix + c.Param("name")
 	p := c.DefaultQuery("path", "")
