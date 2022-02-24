@@ -19,7 +19,7 @@ func TerminalHandler(c *gin.Context) {
 	// read container name from URL params
 	containerName := CFPrefix + c.Param("name")
 	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ExecAttachToTerminal(containerName)
+	hijackedResp, err := v.ContainerAttachToTerminal(containerName)
 	if err != nil {
 		// TODO how to let front end know this error?
 		log.Println(err.Error())
@@ -29,7 +29,7 @@ func TerminalHandler(c *gin.Context) {
 	// clean up after quit
 	defer func() {
 		hijackedResp.Conn.Write([]byte("exit\r"))
-		if err := v.KillTerminal(containerName); err != nil {
+		if err := v.ContainerKillTerminal(containerName); err != nil {
 			log.Printf("Failed to kill terminal of container %s on exit due to %s", containerName, err.Error())
 		}
 	}()

@@ -237,7 +237,7 @@ func wsError(c *Connection, t WsMessageType, msg string) {
 
 func wsInstallAPK(c *Connection, req InstallAPKRequest) {
 	containerName := CFPrefix + req.DeviceName
-	err := v.InstallAPK(containerName, req.File)
+	err := v.VMInstallAPK(containerName, req.File)
 	if err != nil {
 		wsError(c, WS_TYPE_INSTALL_APK, err.Error())
 		return
@@ -552,7 +552,7 @@ func getWorkspaceFileList(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
 		return
 	}
-	files, err := v.GetFileListInContainerFolder(containerName, p)
+	files, err := v.ContainerListFiles(containerName, p)
 	if err != nil {
 		log.Println(err.Error())
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
@@ -569,7 +569,7 @@ func downloadWorkspaceFile(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
 		return
 	}
-	fileBytes, err := v.GetFileInContainer(containerName, p)
+	fileBytes, err := v.ContainerReadFile(containerName, p)
 	if err != nil {
 		log.Println(err.Error())
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})

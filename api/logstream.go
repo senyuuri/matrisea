@@ -41,7 +41,7 @@ func LogStreamHandler(c *gin.Context) {
 
 	cmd := []string{"tail", "-n", "2000", "-f", logFile}
 	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ExecAttachToTTYProcess(containerName, cmd, []string{})
+	hijackedResp, err := v.ContainerAttachToProcess(containerName, cmd, []string{})
 	if err != nil {
 		log.Println("Failed to get log due to", err.Error())
 		return
@@ -50,7 +50,7 @@ func LogStreamHandler(c *gin.Context) {
 	// clean up after quit
 	defer func() {
 		hijackedResp.Conn.Write([]byte("exit\r"))
-		if err := v.KillTTYProcess(containerName, strings.Join(cmd, " ")); err != nil {
+		if err := v.ContainerKillProcess(containerName, strings.Join(cmd, " ")); err != nil {
 			log.Printf("Failed to kill log writer %s of container %s on exit due to %s", logFile, containerName, err.Error())
 		}
 	}()
