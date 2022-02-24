@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -37,11 +38,12 @@ import (
 //
 // More details: https://github.com/moby/moby/issues/38243
 var (
-	CFPrefix       = "matrisea-cvd-" // container name prefix
-	DefaultNetwork = "bridge"        // use docker's default bridge
-	CFImage        = "cuttlefish"    // cuttlefish image name
-	HomeDir        = "/home/vsoc-01" // workdir in container
-	TimeoutVMStart = 120 * time.Second
+	CFPrefix         = "matrisea-cvd-" // container name prefix
+	DefaultNetwork   = "bridge"        // use docker's default bridge
+	CFImage          = "cuttlefish"    // cuttlefish image name
+	HomeDir          = "/home/vsoc-01" // workdir in container
+	TimeoutVMStart   = 120 * time.Second
+	HomeDirSizeLimit = 50 //soft disk quota for HomeDir
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -147,13 +149,16 @@ func NewVMM(dataDir string) (*VMM, error) {
 
 	log.Printf("DATA_DIR=%s\n", dataDir)
 
-	return &VMM{
+	v := &VMM{
 		Client:     cli,
 		DataDir:    dataDir,
 		DevicesDir: devicesDir,
 		DBDir:      dbDir,
 		UploadDir:  uploadDir,
-	}, nil
+	}
+	v.diskSheriff()
+
+	return v, nil
 }
 
 // the caller is responsible for setting up device folder
@@ -1015,6 +1020,71 @@ func (v *VMM) GetFileInContainer(containerName string, filePath string) ([]byte,
 	buf.ReadFrom(tr)
 	log.Printf("Read file %s in container %s, size %d", filePath, containerName, buf.Len())
 	return buf.Bytes(), nil
+}
+
+// Periodically Check container volume usage (/home/vsoc-01) and stop the VM if the volume size has exceeded the limit
+//
+// This is because cuttlefish forces restart on all crashed subprocesses and there is no option to override such behavior.
+// If a VM has crashed and entered an unrecovable state, launch_cvd will enter a boot loop, generates large amount of launcher log,
+// and eventually fill up the entire disk. Docker's disk quota feature (via --storage-opt) won't help in this case as
+// the feature relies docker's overlayfs2 driver to use a non-default xfs backing fs.
+// To prevent this rare yet devastating scenario a.k.a. device entering a boot loop and left running forever, diskShriff() runs
+// periodically to check if the container's /home/vsoc-01 volume has exceeded a given limit. If true, VMStop is called against the VM.
+func (v *VMM) diskSheriff() {
+	go func() {
+		for {
+			fmt.Println("Run DiskSheriff")
+			containers, err := v.listCuttlefishContainers()
+			if err != nil {
+				log.Printf("DiskSheriff failed to list containers due to %\n", err.Error())
+			}
+
+			for _, c := range containers {
+				containerName := c.Names[0][1:]
+				status, err := v.getVMStatus(containerName)
+				if err != nil {
+					log.Printf("DiskSheriff failed to get VMStatus due to %\n", err.Error())
+				}
+				if status == VMRunning {
+					volSize, err := v.getContainerVolumeUsage(containerName)
+					if err != nil {
+						log.Printf("DiskSheriff failed to get volume usage due to %\n", err.Error())
+					}
+					// fmt.Printf("DiskSheriff,%s,%f\n", containerName, float64(volSize)/(math.Pow(1024, 3)))
+					// TODO read limit from container labels
+					if float64(volSize)/(math.Pow(1024, 3)) > float64(HomeDirSizeLimit) {
+						log.Printf("DiskSheriff: VM %s has exceeded disk limit, probably in a boot loop, stopping now\n", containerName)
+						if err := v.VMStop(containerName); err != nil {
+							log.Printf("DiskSheriff: failed to stop VM %s due to %s\n", containerName)
+						}
+					}
+				}
+			}
+			time.Sleep(30 * time.Second)
+		}
+	}()
+}
+
+func (v *VMM) getContainerVolumeUsage(containerName string) (int64, error) {
+	// Volume.UsageData.Size is only populates by DiskUsage()
+	du, err := v.Client.DiskUsage(context.Background())
+	if err != nil {
+		log.Printf("getContainerVolumeUsage failed due to %\n", err.Error())
+	}
+	c, err := v.getContainerJSON(containerName)
+	if err != nil {
+		log.Printf("getContainerVolumeUsage failed due to %\n", err.Error())
+	}
+	for _, m := range c.Mounts {
+		if m.Destination == HomeDir {
+			for _, vol := range du.Volumes {
+				if m.Name == vol.Name {
+					return vol.UsageData.Size, nil
+				}
+			}
+		}
+	}
+	return 0, &VMMError{fmt.Sprintf("Couldn't find %s volume in container %s", HomeDir, containerName)}
 }
 
 func init() {
