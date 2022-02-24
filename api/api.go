@@ -122,11 +122,8 @@ type CreateVMLogResponse struct {
 func (r *CreateVMLogResponse) AbstractResponseBodyMethod() {}
 
 func main() {
-	var err error
-	v, err = vmm.NewVMM(getenv("DATA_DIR", "/data"))
-	if err != nil {
-		log.Fatal(err)
-	}
+	v = vmm.NewVMM(getenv("DATA_DIR", "/data"))
+
 	router = gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowHeaders = []string{"Origin", "x-requested-with", "content-type"}
@@ -331,7 +328,7 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	}
 	wsCreateVMLog(c, "Created device container "+containerName)
 	wsCreateVMLog(c, "Running pre-boot setup...")
-	err = v.VMPreBootSetup(req.DeviceName)
+	err = v.VMPreBootSetup(containerName)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to complete pre-boot setup. Reason: "+err.Error())
 		return
