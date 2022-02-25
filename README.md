@@ -22,27 +22,21 @@
 ## Quick Start
 
 **System Requirements**
+- Hardware: CPU with virtualization extensions* (Intel VT-x or AMD-V) 
+- OS: Debian / Ubuntu (recommended)
+- Dependencies: Docker 
 
-Matrisea is a web service that runs on both bare metal machines and VMs. However if you intend to use a VM through VirtualBox/VMware Workstation/ESXi, make sure to expose hardware-assisted virtualization to the guest OS.
-
-Matrisea only supports Ubuntu at the moment.
-
-Other pre-requisites:
-- golang
-- docker - *make sure docker can be managed by a non-root user [\[more details\]](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)*
-
+*\*If you plan to install Matrisea in a VM, make sure to configure the host to expose hardware-assisted virtualization to the guest.*
 
 **Installation**
-
-> *For VMware users: Matrisea isn't compatible with vmware-tools due to vsock conflicts. The setup scripts will ask your permission to uninstall it. This won't affect the normal function of the VM.*
-
 ```
 git clone https://github.com/senyuuri/matrisea
-cd matrisea; ./setup.sh
+cd matrisea
+sudo ./setup.sh
 
 # reboot to install kernel modules and apply udev rules
-# after reboot, run docker-compose and visit http://127.0.0.1:10080/
-docker-compose up -d
+# once rebooted, open two separate terminals and run
+sudo docker-compose up 
 ```
 
 ## Development
@@ -51,20 +45,11 @@ docker-compose up -d
 1. Clone the repo and build cuttlefish image. Once finished, reboot to load additional kernel modules and apply udev rules.
     ```
     git clone https://github.com/senyuuri/matrisea
-    cd matrisea; ./setup.sh
+    cd matrisea; sudo ./setup.sh
     ```
 2. To download a ready-made AOSP image for testing, Goto https://ci.android.com/ and search for branch `aosp-android11-gsi`. Among all the builds, look for a successful build (green box) under the `userdebug - aosp_cf_x86_x64_phone` column. Click on `Artifacts` and download the following files:
     - `aosp_cf_x86_64_phone-img-xxxxxxx.zip`
     - `cvd-host_package.tar.gz`
-
-3. Create an `images` folder under the root of the source code. Copy both files from (2) into it and unzip to the current directory.
-   ```
-   cp aosp_cf_x86_64_phone-img-xxxxxxx.zip matrisea/images
-   cp cvd-host_packages.tar.gz matrisea/images
-   cd matrisea/images
-   tar xvf cvd-host_package.tar.gz
-   unzip aosp_cf_x86_64_phone-img-xxxxxx.zip
-   ```
 
 **Start the frontend server**
 ```

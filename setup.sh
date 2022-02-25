@@ -21,6 +21,17 @@ echo "Matrisea - Android Dynamic Analysis Platform"
 echo "@senyuuri"
 echo "================================================="
 
+if ! [ $(id -u) = 0 ]; then
+   echo "The script need to be run as root." >&2
+   exit 1
+fi
+
+if [ $SUDO_USER ]; then
+    real_user=$SUDO_USER
+else
+    real_user=$(whoami)
+fi
+
 echo "[Dependency] Checking OS version..."
 if ! which lsb_release &>/dev/null || ! lsb_release -d |grep -q "Ubuntu"; then
   exit_w_err "Matrisea only supports Ubuntu for now"
@@ -42,33 +53,33 @@ if systemctl status open-vm-tools.service | grep -q "Active: active"; then
   echo 
   if [[ $REPLY =~ ^[Yy]$ ]]
   then
-      sudo systemctl disable open-vm-tools.service
+      systemctl disable open-vm-tools.service
       echo "===| open-vm-tools.service service diabled"
       exit_w_err "Reboot and run ./setup.sh again"
   fi
 fi
-sudo modprobe vhost_vsock vhost_net
+modprobe vhost_vsock vhost_net
 
 echo "[Install] Install system-level tools and dependencies..."
-sudo apt install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper-compat golang config-package-dev init-system-helpers=1.5\*
+apt install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper-compat golang config-package-dev init-system-helpers=1.5\*
 
 echo "[Install] Downloading android-cuttlefish and adeb..."
-mkdir -p deps; cd deps; 
+sudo -u $real_user mkdir -p deps; cd deps; 
 WORKDIR=$(pwd)
 if [[ ! -d "adeb" ]]; then
-  git clone https://github.com/joelagnel/adeb.git
+  sudo -u $real_user git clone https://github.com/joelagnel/adeb.git
 fi
 
 if [[ ! -d "android-cuttlefish" ]]; then
-  git clone https://github.com/google/android-cuttlefish
+  sudo -u $real_user git clone https://github.com/google/android-cuttlefish
 fi
 
 echo "[Install] Building and installing cuttlefish debian package..."
 cd android-cuttlefish 
 debuild -i -us -uc -b
-sudo dpkg -i ../cuttlefish-common_*_*64.deb || sudo apt install -f
-sudo usermod -aG kvm,cvdnetwork,render $USER
-cp ../cuttlefish-*.deb ./out/cuttlefish-*.deb
+dpkg -i ../cuttlefish-common_*_*64.deb || apt install -f
+usermod -aG kvm,cvdnetwork,render $USER
+sudo -u $real_user cp ../cuttlefish-*.deb ./out/
 
 echo "[Install] Building cuttlefish VM image..."
 ./build.sh --verbose
