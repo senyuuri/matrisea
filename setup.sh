@@ -82,7 +82,7 @@ usermod -aG kvm,cvdnetwork,render $USER
 sudo -u $real_user cp ../cuttlefish-*.deb ./out/
 
 echo "[Install] Building cuttlefish VM image..."
-./build.sh --verbose
+sudo -u $real_user ./build.sh --verbose
 cd "${WORKDIR}"; 
 
 echo ""
