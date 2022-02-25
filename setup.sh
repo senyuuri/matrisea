@@ -68,6 +68,8 @@ cd android-cuttlefish
 debuild -i -us -uc -b
 sudo dpkg -i ../cuttlefish-common_*_*64.deb || sudo apt install -f
 sudo usermod -aG kvm,cvdnetwork,render $USER
+mkdir out
+cp ../cuttlefish-*.deb ./out/cuttlefish-*.deb
 
 echo "[Install] Building cuttlefish VM image..."
 ./build.sh --verbose
