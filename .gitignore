@@ -6,6 +6,7 @@ data
 vmm/vmm
 api/api
 *coverage.out
+*coverage.html
 *__debug_bin
 
 # web misc

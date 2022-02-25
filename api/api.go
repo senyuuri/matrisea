@@ -302,13 +302,6 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 			return
 		}
 	}
-	// create device folder
-	folderName := CFPrefix + req.DeviceName
-	if err := os.Mkdir(path.Join(v.DevicesDir+"/"+folderName), 0755); err != nil {
-		wsCreateVMFailStep(c, STEP_PREFLIGHT_CHECKS, "Failed to create the device folder. Reason: "+err.Error())
-		return
-	}
-	wsCreateVMCompleteStep(c, STEP_PREFLIGHT_CHECKS)
 
 	// 3 - STEP_CREATE_VM
 	match, _ := regexp.MatchString("^[a-zA-z0-9-_]+$", req.DeviceName)

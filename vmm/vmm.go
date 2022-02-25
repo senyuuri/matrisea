@@ -33,7 +33,6 @@ import (
 )
 
 var (
-	CFPrefix = "matrisea-cvd-" // container name prefix
 	// DefaultNetwork: although the ideal design is to setup a new bridge network so as
 	// to ensure better isolation between matrisea and other docker workloads on the same host.
 	// However, this could introduce in-container DNS failure on Ubuntu 18.09+ as 18.09+ defaults
@@ -66,6 +65,7 @@ type VMM struct {
 	DBDir      string
 	UploadDir  string
 	createMu   sync.Mutex // for concurrent CreateVM() call
+	CFPrefix   string     // container name prefix
 }
 
 type VMItem struct {
@@ -103,6 +103,10 @@ type ExecResult struct {
 }
 
 func NewVMM(dataDir string) *VMM {
+	return NewVMMImpl(dataDir, "matrisea-cvd-")
+}
+
+func NewVMMImpl(dataDir string, cfPrefix string) *VMM {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatalf("Failed to create a Docker API client. Reason: %v", err)
@@ -135,6 +139,7 @@ func NewVMM(dataDir string) *VMM {
 		DevicesDir: devicesDir,
 		DBDir:      dbDir,
 		UploadDir:  uploadDir,
+		CFPrefix:   cfPrefix,
 	}
 	// watch for VMs in boot loops
 	v.diskSheriff()
@@ -145,7 +150,7 @@ func NewVMM(dataDir string) *VMM {
 // assume docker's default network exist on the host
 func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) (string, error) {
 	ctx := context.Background()
-	containerName := CFPrefix + deviceName
+	containerName := v.CFPrefix + deviceName
 
 	// There will be a race condition on cfInstance if VMCreate() is called multiple times.
 	// More specifically, findNextAvailableCFInstanceNumber() reads labels from existings containers.
@@ -155,6 +160,13 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 	// next findNextAvailableCFInstanceNumber() call.
 	v.createMu.Lock()
 	defer v.createMu.Unlock()
+
+	deviceDir := path.Join(v.DevicesDir, containerName)
+	if _, err := os.Stat(deviceDir); os.IsNotExist(err) {
+		if err = os.Mkdir(path.Join(v.DevicesDir+"/"+containerName), 0755); err != nil {
+			return "", err
+		}
+	}
 
 	// The next available index of cuttlefish VM. Always >= 1.
 	// It is important for us to keep tracking of this index as cuttlefish use it to derive different
@@ -188,11 +200,6 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		ExposedPorts: nat.PortSet{
 			websockifyPort: struct{}{},
 		},
-	}
-
-	deviceDir := path.Join(v.DevicesDir, containerName)
-	if _, err := os.Stat(deviceDir); os.IsNotExist(err) {
-		return "", err
 	}
 
 	hostConfig := &container.HostConfig{
@@ -334,7 +341,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 	defer func() {
 		err = v.startADBDaemon(containerName)
 		if err != nil {
-			log.Printf("error: failed to startADBDaemon in %s. reason:%w", containerName, err)
+			log.Printf("error: failed to startADBDaemon in %s. reason:%v", containerName, err)
 		}
 	}()
 
@@ -358,7 +365,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 		case done := <-outputDone:
 			if done == 1 {
 				elapsed := time.Since(start)
-				log.Printf("VMStart (%s): success\n", containerName, elapsed)
+				log.Printf("VMStart (%s): success after %d\n", containerName, elapsed)
 				return nil
 			}
 			return errors.New("VMStart failed as launch_cvd terminated abnormally")
@@ -606,7 +613,7 @@ func (v *VMM) ContainerKillProcess(containerName string, cmd string) error {
 			_, err := v.containerExec(containerName, fmt.Sprintf("kill %s", pid), "root")
 			if err != nil {
 				// kill with best effort so just do logging
-				log.Printf("ContainerKillProcess (%s): failed to kill %s;%s due to %w\n", containerName, pid, process, err)
+				log.Printf("ContainerKillProcess (%s): failed to kill %s;%s due to %v\n", containerName, pid, process, err)
 				continue
 			}
 			log.Printf("ContainerKillProcess (%s): killed %s:%s", containerName, pid, process)
@@ -639,7 +646,7 @@ func (v *VMM) ContainerReadFile(containerName string, filePath string) ([]byte, 
 	log.Printf("ContainerReadFile (%s): Copying file %s", containerName, filePath)
 	reader, _, err := v.Client.CopyFromContainer(context.TODO(), id, filePath)
 	if err != nil {
-		log.Println(err.Error())
+		return []byte{}, err
 	}
 	tr := tar.NewReader(reader)
 
@@ -661,23 +668,37 @@ func (v *VMM) ContainerReadFile(containerName string, filePath string) ([]byte, 
 
 // Get the next smallest cf_instance number that have not been assigned
 func (v *VMM) getNextCFInstanceNumber() (int, error) {
-	cfList, err := v.listCuttlefishContainers()
+	// Here we get all cuttlefish containers from the host's view, regardless of which VMM instance they belong to.
+	//
+	// listCuttlefishContainers() and isCuttlefishContainer() are not used because they filter containers
+	// based on v.CFPrefix. In the case that two VMMs are running on the same host (i.e. 1 for dev, 1 for go test),
+	// using above-mentioned functions will create overlapped cf_instance numbers, which could lead to port conflicts.
+	containerList, err := v.Client.ContainerList(context.Background(), types.ContainerListOptions{All: true})
 	if err != nil {
 		return -1, err
 	}
+
 	indexes := []int{}
-	for _, c := range cfList {
-		cf_idx, err := strconv.Atoi(c.Labels["cf_instance"])
-		if err != nil {
-			return -1, err
+	cfList := []types.Container{}
+	for _, c := range containerList {
+		if value, ok := c.Labels["cf_instance"]; ok {
+			cfList = append(cfList, c)
+			cf_idx, err := strconv.Atoi(value)
+			if err != nil {
+				return -1, err
+			}
+			indexes = append(indexes, cf_idx)
 		}
-		indexes = append(indexes, cf_idx)
 	}
 	sort.Ints(indexes)
-	// if all cf_instance numbers so far are continuous
-	if indexes[len(indexes)-1] == len(cfList) {
+	log.Printf("getNextCFInstanceNumber: num of existing cuttlefish containers: %d - %v\n", len(indexes), indexes)
+	if len(indexes) == 0 {
+		return 1, nil
+	} else if indexes[len(indexes)-1] == len(cfList) {
+		// if all assigned cf_instance numbers are continueous so far
 		return len(cfList) + 1, nil
 	} else {
+		// find the smallest available cf_instance number
 		i := 1
 		for {
 			if indexes[i-1] != i {
@@ -803,7 +824,7 @@ func (v *VMM) getContainerIDByName(target string) (containerID string, err error
 	for _, c := range cfList {
 		for _, name := range c.Names {
 			// docker container names all start with "/"
-			prefix := "/" + CFPrefix
+			prefix := "/" + v.CFPrefix
 			if strings.HasPrefix(name, prefix) && strings.Contains(name, target) {
 				return c.ID, nil
 			}
@@ -988,7 +1009,7 @@ func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
 func (v *VMM) isCuttlefishContainer(container types.Container) bool {
 	for _, name := range container.Names {
 		// docker container names all start with "/"
-		prefix := "/" + CFPrefix
+		prefix := "/" + v.CFPrefix
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
@@ -1010,19 +1031,19 @@ func (v *VMM) diskSheriff() {
 		for {
 			containers, err := v.listCuttlefishContainers()
 			if err != nil {
-				log.Printf("DiskSheriff: failed to list containers. error: %\n", err.Error())
+				log.Printf("DiskSheriff: failed to list containers. error: %v\n", err)
 			}
 
 			for _, c := range containers {
 				containerName := c.Names[0][1:]
 				status, err := v.getVMStatus(containerName)
 				if err != nil {
-					log.Printf("DiskSheriff: failed to get VMStatus error: %\n", err.Error())
+					log.Printf("DiskSheriff: failed to get VMStatus error: %v\n", err)
 				}
 				if status == VMRunning {
 					volSize, err := v.getContainerVolumeUsage(containerName)
 					if err != nil {
-						log.Printf("DiskSheriff: failed to get volume usage. error: %\n", err.Error())
+						log.Printf("DiskSheriff: failed to get volume usage. error: %v\n", err)
 					}
 					// fmt.Printf("DiskSheriff,%s,%f\n", containerName, float64(volSize)/(math.Pow(1024, 3)))
 					// TODO read limit from container labels
