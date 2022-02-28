@@ -21,7 +21,9 @@ jobs:
         go-version: 1.16
 
     - name: Build
+      working-directory: ./vmm
       run: go build -v ./...
 
     - name: Test
-      run: go test -v ./...
+      working-directory: ./vmm
+      run: go test -v ./... -coverprofile=coverage.out
