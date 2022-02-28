@@ -41,6 +41,14 @@
   height: 40px;
 }
 
+.file-btn-chosen {
+  border-color:  #389e0d;
+}
+
+.file-btn-chosen span{
+  color: #389e0d;
+}
+
 .ant-page-header {
   padding-left: 0;
   padding-right: 0;
@@ -65,4 +73,28 @@
 #vm-status-error-tooltip {
   margin-left: 5px;
   margin-top: -2px;
+}
+
+#start-vm-log {
+  padding-top: 20px
+}
+
+.react-lazylog div div span {
+  padding-left: 10px;
+}
+
+.react-lazylog div div a {
+  display: none;
+}
+
+.file-explorer .ant-table-cell {
+  padding: 5px 10px;
+} 
+
+.file-explorer button {
+  padding: 4px 0;
+}
+
+.file-explorer a {
+  padding: 4px 0;
 }

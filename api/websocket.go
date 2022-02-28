@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -47,7 +48,7 @@ func (c *Connection) readPump() {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("Failed to parse WS request. Reason: %s\n", err.Error())
 			}
-			break
+			return
 		}
 		// Handle the message in a new go routine so we won't block the readPump even if the
 		// callee's gonna take a long time.
@@ -78,7 +79,9 @@ func (c *Connection) writePump() {
 			}
 			err := c.conn.WriteJSON(message)
 			if err != nil {
-				log.Println(err.Error())
+				log.Println("writePump Error:", err.Error(), message)
+				fmt.Println("writePump closed", err.Error())
+				return
 			}
 		case <-ticker.C:
 			// Send ping/pong message to keep websocket alive.

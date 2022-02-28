@@ -1,9 +1,11 @@
 import { Drawer, Form, Button, Col, Row, Input, Select, Divider, Steps, message} from 'antd';
 import React, { useState, useCallback, useEffect, useReducer} from 'react';
 import { PlusOutlined, CheckOutlined, LoadingOutlined} from '@ant-design/icons';
-import { WsContext } from '../Context';
-import FileModalForm from './FileModalForm';
+import { LazyLog, ScrollFollow } from 'react-lazylog';
 import axios from 'axios';
+
+import { WsContext } from '../Context';
+import ImagePickerModal from './ImagePickerModal';
 
 const { Option } = Select;
 const { Step } = Steps;
@@ -23,11 +25,12 @@ function NewVMForm(props) {
 
   // State of Step 1 - New VM Form
   const [systemImageButtonText, setSystemImageButtonText] = useState('Select File');
-  const [systemImageIcon, setSystemImageIcon] = useState('PlusOutlined');
+  const [hasChosenSystemImage, setHasChosenSystemImage] = useState(false);
   const [cvdImageButtonText, setCvdImageButtonText] = useState('Select File');
-  const [cvdImageIcon, setCvdImageIcon] = useState('PlusOutlined');
+  const [hasChosenCVDImage, setHasChosenCVDImage] = useState(false);
 
   // State of Step 2 - VM Creation Progress
+  const [log, setLog] = useState("Waiting for device...");
   const [fileModalVisible, setFileModalVisible] = useState(false);
   const [filePickerType, setFilePickerType] = useState('System');
   const [fileList, setFileList] = useState([]);
@@ -41,6 +44,8 @@ function NewVMForm(props) {
         let tmpArr = [...stepMessages];
         tmpArr[idx] = value;
         return tmpArr;
+      case "reset":
+        return Array(5).fill('');
       default:
         return stepMessages;
     }
@@ -54,14 +59,16 @@ function NewVMForm(props) {
   const resetForm = useCallback(() => {
     form.resetFields();
     setSystemImageButtonText('Select File');
-    setSystemImageIcon('PlusOutlined');
+    setHasChosenSystemImage(false);
     setCvdImageButtonText('Select File');
-    setCvdImageIcon('PlusOutlined');
+    setHasChosenCVDImage(false);
     setCurrentStep(1);
     setCurrentCreateVMStep(0);
     setIsMaskClosable(true);
     setHasErrorInCreateVMStep(false);
     setHasVMCreationSucceed(false);
+    setStepMessages({type:"reset"});
+    setLog("Waiting for device...");
   },[form]);
 
   const handleWSMessage = useCallback((e) => {
@@ -87,6 +94,10 @@ function NewVMForm(props) {
           setHasVMCreationSucceed(true);
         }
       }
+    }
+    // type 3: WS_TYPE_CREATE_VM_LOG
+    else if (msg.type === 3) {
+      setLog( prevLog => {return prevLog +"\n"+ msg.data.log});
     }
   },[stepStartTime]);
 
@@ -136,8 +147,12 @@ function NewVMForm(props) {
 
   // Progress form step 2 to 3
   const viewResults = () => {
-    setCurrentStep(3);
-    setIsMaskClosable(true);
+    if (hasErrorInCreateVMStep) {
+      handleClose();
+    } else {
+      setCurrentStep(3);
+      setIsMaskClosable(true);
+    }
   }
 
   const chooseSystemFile = () => {
@@ -190,7 +205,7 @@ function NewVMForm(props) {
           </div>
           <div id='step-2-buttons' style={{display: currentStep===2 ? 'block' : 'none'}}>
             <Button onClick={handleClose} style={{ marginRight: 8 }}>Continue in background</Button>
-            <Button onClick={viewResults} disabled={!hasVMCreationSucceed}>Next</Button>
+            <Button onClick={viewResults} disabled={!hasVMCreationSucceed}> {hasErrorInCreateVMStep ? "Done" : "Next"}</Button>
           </div>
           <div id='step-3-buttons' style={{display: currentStep===3 ? 'block' : 'none'}}>
             <Button onClick={handleClose} style={{ marginRight: 8 }}>Done</Button>
@@ -219,7 +234,7 @@ function NewVMForm(props) {
                   values.filename = values.filename.slice(0,15) + "..." + values.filename.slice(-12)
                 } 
                 setSystemImageButtonText(values.filename);
-                setSystemImageIcon('CheckOutlined');
+                setHasChosenSystemImage(true);
               }
               else if (filePickerType === "CVD") {
                 mainForm.setFieldsValue({
@@ -229,7 +244,7 @@ function NewVMForm(props) {
                   values.filename = values.filename.slice(0,15) + "..." + values.filename.slice(-12)
                 } 
                 setCvdImageButtonText(values.filename);
-                setCvdImageIcon('CheckOutlined');
+                setHasChosenCVDImage(true);
               }
               fileForm.resetFields();
               setFileModalVisible(false);
@@ -244,7 +259,7 @@ function NewVMForm(props) {
             hideRequiredMark
             onFinish={submitForm}
             initialValues={{
-              name: 'cvd-'+ Math.random().toString(36).substring(2, 8),
+              name: Math.random().toString(36).substring(2, 8),
               type: "cuttlefish-kvm",
               cpu: 2,
               ram: 4,
@@ -297,8 +312,8 @@ function NewVMForm(props) {
                 rules={[{ required: true, message: 'Please enter the size of RAM' }]}
               >
                 <Select placeholder="Please choose the size of RAM">
-                  {new Array(8).fill(null).map((_, index) => {
-                    const key = index + 1;
+                  {new Array(7).fill(null).map((_, index) => {
+                    const key = index + 2;
                     return <Option key={key} value={key}> {key} GB</Option>
                     
                   })}
@@ -321,10 +336,11 @@ function NewVMForm(props) {
                   </Form.Item>
                   <Form.Item noStyle>
                   <Button
-                    type="dashed"
+                    className={hasChosenSystemImage ? "file-btn-chosen" :""}
+                    type={hasChosenSystemImage ? "" : "dashed"}
                     onClick={chooseSystemFile}
-                    style={{ width: '100%' }}
-                    icon={ systemImageIcon === 'PlusOutlined'?<PlusOutlined />:<CheckOutlined/>}
+                    style={{ width: '100%'}}
+                    icon={ hasChosenSystemImage ? <CheckOutlined/> : <PlusOutlined />}
                   >
                     {systemImageButtonText}
                   </Button>
@@ -342,10 +358,11 @@ function NewVMForm(props) {
                   </Form.Item>
                   <Form.Item noStyle>
                     <Button
-                      type="dashed"
+                      className={hasChosenCVDImage ? "file-btn-chosen" :""}
+                      type={hasChosenCVDImage ? "" : "dashed"}
                       onClick={chooseCVDFile}
                       style={{ width: '100%' }}
-                      icon={ cvdImageIcon === 'PlusOutlined'?<PlusOutlined />:<CheckOutlined/>}
+                      icon={ hasChosenCVDImage ?<CheckOutlined/>:<PlusOutlined />}
                     >
                       {cvdImageButtonText}  
                     </Button>
@@ -369,7 +386,7 @@ function NewVMForm(props) {
               </Col>
             </Row>
           </Form>
-          <FileModalForm 
+          <ImagePickerModal 
             visible={fileModalVisible} 
             onCancelCallback={hideFileModal} 
             target={filePickerType}
@@ -390,6 +407,15 @@ function NewVMForm(props) {
             />
           ))}
         </Steps>
+
+        <h4 style={{paddingTop:'20px'}}>Device Log</h4>
+        <ScrollFollow
+          id="start-vm-log"
+          startFollowing={true}
+          render={({ follow, onScroll }) => (
+            <LazyLog height={300} text={log} stream follow={follow} onScroll={onScroll} />
+          )}
+        />
       </div>
 
       <div id='step-3-div' style={{display: currentStep===3 ? 'block' : 'none'}}>

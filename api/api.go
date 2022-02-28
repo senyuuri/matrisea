@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -50,7 +49,8 @@ type WsMessageType int
 const (
 	WS_TYPE_LIST_VM WsMessageType = iota
 	WS_TYPE_CREATE_VM
-	WS_TYPE_STREAM_LOG
+	WS_TYPE_INSTALL_APK
+	WS_TYPE_CREATE_VM_LOG
 	WS_TYPE_UNKNOWN
 )
 
@@ -101,34 +101,29 @@ type ListVMResponse struct {
 
 func (r *ListVMResponse) AbstractResponseBodyMethod() {}
 
-type LogSource int
-
-const (
-	LOG_LAUNCHER LogSource = iota
-	LOG_KERNEL
-	LOG_LOGCAT
-)
-
-type StreamLogRequest struct {
-	Source     LogSource `json:"source" binding:"required"`
-	DeviceName string    `json:"device_name" binding:"required"`
+type InstallAPKRequest struct {
+	DeviceName string `json:"name" binding:"required"`
+	File       string `json:"file" binding:"required"`
 }
 
-func (r *StreamLogRequest) AbstractRequestBodyMethod() {}
+func (r *InstallAPKRequest) AbstractRequestBodyMethod() {}
 
-type StreamLogResponse struct {
-	Source LogSource `json:"source" binding:"required"`
-	Log    string    `json:"log"`
+type InstallAPKResponse struct {
+	DeviceName string `json:"name" binding:"required"`
+	File       string `json:"file" binding:"required"`
 }
 
-func (r *StreamLogResponse) AbstractResponseBodyMethod() {}
+func (r *InstallAPKResponse) AbstractResponseBodyMethod() {}
+
+type CreateVMLogResponse struct {
+	Log string `json:"log"`
+}
+
+func (r *CreateVMLogResponse) AbstractResponseBodyMethod() {}
 
 func main() {
-	var err error
-	v, err = vmm.NewVMM(getenv("DATA_DIR", "/data"))
-	if err != nil {
-		log.Fatal(err)
-	}
+	v = vmm.NewVMM(getenv("DATA_DIR", "/data"))
+
 	router = gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowHeaders = []string{"Origin", "x-requested-with", "content-type"}
@@ -144,11 +139,16 @@ func main() {
 		v1.GET("/vms/:name", getVM)
 		v1.POST("/vms/:name/start", startVM)
 		v1.POST("/vms/:name/stop", stopVM)
+		v1.POST("/vms/:name/upload", uploadDeviceFile)
+		v1.GET("/vms/:name/apks", getApkFileList)
+		v1.GET("/vms/:name/dir", getWorkspaceFileList)
+		v1.GET("/vms/:name/files", downloadWorkspaceFile)
 		v1.DELETE("/vms/:name", removeVM)
-		v1.GET("/vms/:name/ws", terminalHandler) // websocket
+		v1.GET("/vms/:name/ws", TerminalHandler)           // websocket
+		v1.GET("/vms/:name/log/:source", LogStreamHandler) // websocket
 		v1.GET("/files/system", getSystemImageList)
 		v1.GET("/files/cvd", getCVDImageList)
-		v1.POST("/files/upload", uploadFile)
+		v1.POST("/files/upload", uploadImageFile)
 	}
 	router.Run()
 }
@@ -177,13 +177,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		conn: wsConn,
 		send: make(chan interface{}),
 	}
-	conn.SetMessageHandler(processWSMessage)
+	conn.SetMessageHandler(wsMainPageHandler)
 
 	go conn.readPump()
 	go conn.writePump()
 }
 
-func processWSMessage(c *Connection, buf []byte) {
+func wsMainPageHandler(c *Connection, buf []byte) {
 	var objmap map[string]json.RawMessage
 	err := json.Unmarshal(buf, &objmap)
 	if err != nil {
@@ -205,25 +205,47 @@ func processWSMessage(c *Connection, buf []byte) {
 		var createReq CreateVMRequest
 		err = json.Unmarshal(objmap["data"], &createReq)
 		if err != nil {
-			log.Println(err.Error())
+			wsError(c, WS_TYPE_CREATE_VM, "Invalid message type")
 		}
 		wsCreateVM(c, createReq)
 
-	case WS_TYPE_STREAM_LOG:
-		log.Printf("/api/v1/ws invoke wsStreamLog()")
-		var streamReq StreamLogRequest
-		err = json.Unmarshal(objmap["data"], &streamReq)
+	case WS_TYPE_INSTALL_APK:
+		log.Printf("/api/v1/ws invoke wsInstallAPK()")
+		var installReq InstallAPKRequest
+		err = json.Unmarshal(objmap["data"], &installReq)
 		if err != nil {
 			log.Println(err.Error())
 		}
-		wsStreamLog(c, streamReq)
+		wsInstallAPK(c, installReq)
 
 	default:
-		c.send <- &WebSocketResponse{
-			Type:     WS_TYPE_UNKNOWN,
-			HasError: true,
-			ErrorMsg: fmt.Sprintf("Unknown websocket message type %d", reqType),
-		}
+		wsError(c, WS_TYPE_UNKNOWN, fmt.Sprintf("Unknown websocket message type %d", reqType))
+	}
+}
+
+func wsError(c *Connection, t WsMessageType, msg string) {
+	log.Printf("wsError: %s, %d, %s", c.conn.RemoteAddr(), t, msg)
+	c.send <- &WebSocketResponse{
+		Type:     t,
+		HasError: true,
+		ErrorMsg: msg,
+	}
+}
+
+func wsInstallAPK(c *Connection, req InstallAPKRequest) {
+	containerName := CFPrefix + req.DeviceName
+	err := v.VMInstallAPK(containerName, req.File)
+	if err != nil {
+		wsError(c, WS_TYPE_INSTALL_APK, err.Error())
+		return
+	}
+	c.send <- &WebSocketResponse{
+		Type:     WS_TYPE_INSTALL_APK,
+		HasError: false,
+		Data: &InstallAPKResponse{
+			DeviceName: req.DeviceName,
+			File:       req.File,
+		},
 	}
 }
 
@@ -244,73 +266,6 @@ func wsListVM(c *Connection) {
 		Data: &ListVMResponse{
 			VMs: vmList,
 		},
-	}
-}
-
-func wsStreamLog(c *Connection, req StreamLogRequest) {
-	var logFile string
-	switch req.Source {
-	case LOG_LAUNCHER:
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/launcher.log")
-	case LOG_KERNEL:
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/kernel.log")
-	case LOG_LOGCAT:
-		logFile = path.Join(vmm.HomeDir, "cuttlefish_runtime.1/logcat")
-	default:
-		c.send <- &WebSocketResponse{
-			Type:     WS_TYPE_STREAM_LOG,
-			HasError: true,
-			ErrorMsg: "Unknown log source",
-		}
-		return
-	}
-	containerName := CFPrefix + req.DeviceName
-	cmd := []string{"tail", "+1f", logFile}
-	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ExecAttachToTTYProcess(containerName, cmd, []string{})
-	if err != nil {
-		log.Println("Failed to get log due to", err.Error())
-		c.send <- &WebSocketResponse{
-			Type:     WS_TYPE_STREAM_LOG,
-			HasError: true,
-			ErrorMsg: fmt.Sprintf("Failed to get log due to %s", err.Error()),
-		}
-		return
-	}
-
-	// clean up after quit
-	defer func() {
-		fmt.Println("exit log writer")
-		hijackedResp.Conn.Write([]byte("exit\r"))
-		if err := v.KillTTYProcess(containerName, strings.Join(cmd, " ")); err != nil {
-			log.Printf("Failed to kill log writer %s of container %s on exit due to %s", logFile, containerName, err.Error())
-		}
-	}()
-	defer hijackedResp.Close()
-
-	// same logic as wsWriter but we are sending to main WS connection's writer
-	buf := make([]byte, 8192)
-	for {
-		nr, err := hijackedResp.Conn.Read(buf)
-		if err != nil {
-			log.Println("Failed to read log due to", err.Error())
-			c.send <- &WebSocketResponse{
-				Type:     WS_TYPE_STREAM_LOG,
-				HasError: true,
-				ErrorMsg: fmt.Sprintf("Failed to get log due to %s", err.Error()),
-			}
-			return
-		}
-		if nr > 0 {
-			c.send <- &WebSocketResponse{
-				Type:     WS_TYPE_STREAM_LOG,
-				HasError: false,
-				Data: &StreamLogResponse{
-					Source: req.Source,
-					Log:    strings.ReplaceAll(string(buf[0:nr]), "\r", ""),
-				},
-			}
-		}
 	}
 }
 
@@ -347,13 +302,6 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 			return
 		}
 	}
-	// create device folder
-	folderName := CFPrefix + req.DeviceName
-	if err := os.Mkdir(path.Join(v.DevicesDir+"/"+folderName), 0755); err != nil {
-		wsCreateVMFailStep(c, STEP_PREFLIGHT_CHECKS, "Failed to create the device folder. Reason: "+err.Error())
-		return
-	}
-	wsCreateVMCompleteStep(c, STEP_PREFLIGHT_CHECKS)
 
 	// 3 - STEP_CREATE_VM
 	match, _ := regexp.MatchString("^[a-zA-z0-9-_]+$", req.DeviceName)
@@ -369,6 +317,13 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to create VM. Reason: "+err.Error())
+		return
+	}
+	wsCreateVMLog(c, "Created device container "+containerName)
+	wsCreateVMLog(c, "Running pre-boot setup...")
+	err = v.VMPreBootSetup(containerName)
+	if err != nil {
+		wsCreateVMFailStep(c, STEP_CREATE_VM, "Failed to complete pre-boot setup. Reason: "+err.Error())
 		return
 	}
 	wsCreateVMCompleteStep(c, STEP_CREATE_VM)
@@ -397,17 +352,20 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	//
 
 	// Load system image (.zip) and unzip in the container
+	wsCreateVMLog(c, "Loading system image "+req.SystemImage+"...")
 	err = v.VMLoadFile(containerName, systemImagePath)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
 		return
 	}
+	wsCreateVMLog(c, "Unzipping system image "+req.SystemImage+"...")
 	err = v.VMUnzipImage(containerName, req.SystemImage)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to unzip system iamge. Reason: "+err.Error())
 		return
 	}
 	// Load CVD image (.tar)
+	wsCreateVMLog(c, "Loading CVD image "+req.CVDImage+"...")
 	err = v.VMLoadFile(containerName, cvdImagePath)
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_LOAD_IMAGES, "Failed to load system iamge. Reason: "+err.Error())
@@ -416,7 +374,9 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	wsCreateVMCompleteStep(c, STEP_LOAD_IMAGES)
 
 	// 5 - STEP_START_VM
-	err = v.VMStart(containerName, false, "")
+	err = v.VMStart(containerName, false, "", func(lines string) {
+		wsCreateVMLog(c, lines)
+	})
 	if err != nil {
 		wsCreateVMFailStep(c, STEP_START_VM, "VM failed to start. Reason: "+err.Error())
 		return
@@ -446,6 +406,15 @@ func wsCreateVMFailStep(c *Connection, step CreateVMStep, errorMsg string) {
 	}
 }
 
+func wsCreateVMLog(c *Connection, lines string) {
+	c.send <- &WebSocketResponse{
+		Type: WS_TYPE_CREATE_VM_LOG,
+		Data: &CreateVMLogResponse{
+			Log: lines,
+		},
+	}
+}
+
 func getVM(c *gin.Context) {
 	name := c.Param("name")
 	vmList, err := v.VMList()
@@ -465,7 +434,7 @@ func getVM(c *gin.Context) {
 func startVM(c *gin.Context) {
 	name := CFPrefix + c.Param("name")
 	// TODO add default options
-	if err := v.VMStart(name, true, ""); err != nil {
+	if err := v.VMStart(name, true, "", func(string) {}); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -490,66 +459,24 @@ func removeVM(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "ok"})
 }
 
-func terminalHandler(c *gin.Context) {
-	// upgrader := websocket.Upgrader{
-	// 	CheckOrigin: func(r *http.Request) bool {
-	// 		return true
-	// 	},
-	// }
-	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		log.Print("upgrade:", err)
-		return
-	}
-	defer conn.Close()
-
-	// read container name from URL params
-	containerName := CFPrefix + c.Param("name")
-	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ExecAttachToTerminal(containerName)
-	if err != nil {
-		// TODO how to let front end know this error?
-		log.Println(err.Error())
-		return
-	}
-
-	// clean up after quit
-	defer func() {
-		hijackedResp.Conn.Write([]byte("exit\r"))
-		if err := v.KillTerminal(containerName); err != nil {
-			log.Printf("Failed to kill terminal of container %s on exit due to %s", containerName, err.Error())
-		}
-	}()
-	defer hijackedResp.Close()
-
-	// forward read/write to websocket
-	go wsWriterCopy(conn, hijackedResp.Conn)
-	wsReaderCopy(conn, hijackedResp.Conn)
-}
-
 func getSystemImageList(c *gin.Context) {
-	var files []string
-
-	err := filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
-		if strings.HasSuffix(path, ".zip") {
-			files = append(files, filepath.Base(path))
-		}
-		return nil
-	})
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"message": err.Error(),
-		})
-		return
-	}
-	c.JSON(200, gin.H{"files": files})
+	getFilesInFolder(c, ".zip", v.UploadDir)
 }
 
 func getCVDImageList(c *gin.Context) {
+	getFilesInFolder(c, ".tar", v.UploadDir)
+}
+
+func getApkFileList(c *gin.Context) {
+	containerName := CFPrefix + c.Param("name")
+	getFilesInFolder(c, ".apk", path.Join(v.DevicesDir, containerName))
+}
+
+func getFilesInFolder(c *gin.Context, fileExtension string, folder string) {
 	var files []string
 
-	err := filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
-		if strings.HasSuffix(path, ".tar") {
+	err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
+		if strings.HasSuffix(path, fileExtension) {
 			files = append(files, filepath.Base(path))
 		}
 		return nil
@@ -563,7 +490,16 @@ func getCVDImageList(c *gin.Context) {
 	c.JSON(200, gin.H{"files": files})
 }
 
-func uploadFile(c *gin.Context) {
+func uploadImageFile(c *gin.Context) {
+	uploadFile(c, []string{".zip", ".tar"}, v.UploadDir)
+}
+
+func uploadDeviceFile(c *gin.Context) {
+	containerName := CFPrefix + c.Param("name")
+	uploadFile(c, []string{".apk"}, path.Join(v.DevicesDir, containerName))
+}
+
+func uploadFile(c *gin.Context, allowedExtensions []string, dstFolder string) {
 	file, err := c.FormFile("file")
 	// The file cannot be received.
 	if err != nil {
@@ -574,57 +510,63 @@ func uploadFile(c *gin.Context) {
 	}
 
 	// Retrieve file information
-	extension := filepath.Ext(file.Filename)
-	log.Println(extension)
-	if extension != ".zip" && extension != ".tar" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-			"error": "Unsupported file formats"},
-		)
-		return
-	}
+	ext := filepath.Ext(file.Filename)
 
-	// The file is received, so let's save it
-	if err := c.SaveUploadedFile(file, v.UploadDir+"/"+file.Filename); err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"message": "Unable to save the file",
-		})
-		return
-	}
-
-	// File saved successfully. Return proper result
-	c.JSON(http.StatusOK, gin.H{
-		"message": "success",
-	})
-}
-
-// write terminal output to front end
-func wsWriterCopy(writer *websocket.Conn, reader io.Reader) {
-	buf := make([]byte, 8192)
-	for {
-		nr, err := reader.Read(buf)
-		if nr > 0 {
-			err := writer.WriteMessage(websocket.BinaryMessage, buf[0:nr])
-			if err != nil {
+	for _, e := range allowedExtensions {
+		if ext == e {
+			// The file is received, so let's save it
+			if err := c.SaveUploadedFile(file, path.Join(dstFolder, file.Filename)); err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+					"message": "Unable to save the file",
+				})
 				return
 			}
-		}
-		if err != nil {
+
+			// File saved successfully. Return proper result
+			c.JSON(http.StatusOK, gin.H{
+				"message": "success",
+			})
 			return
 		}
 	}
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		"error": "Unsupported file formats"},
+	)
 }
 
-// send front end input to terminal
-func wsReaderCopy(reader *websocket.Conn, writer io.Writer) {
-	for {
-		messageType, p, err := reader.ReadMessage()
-		if err != nil {
-			return
-		}
-		if messageType == websocket.TextMessage {
-			writer.Write(p)
-		}
+func getWorkspaceFileList(c *gin.Context) {
+	containerName := CFPrefix + c.Param("name")
+	p := c.DefaultQuery("path", "")
+	if p == "" {
+		log.Println("Error : empty query string")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
+		return
 	}
+	files, err := v.ContainerListFiles(containerName, p)
+	if err != nil {
+		log.Println(err.Error())
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
+		return
+	}
+	c.JSON(200, gin.H{"files": files})
+}
+
+func downloadWorkspaceFile(c *gin.Context) {
+	containerName := CFPrefix + c.Param("name")
+	p := c.DefaultQuery("path", "")
+	if p == "" {
+		log.Println("Error : empty query string")
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
+		return
+	}
+	fileBytes, err := v.ContainerReadFile(containerName, p)
+	if err != nil {
+		log.Println(err.Error())
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(p)))
+	c.Data(http.StatusOK, "application/octet-stream", fileBytes)
 }
 
 func getenv(key, fallback string) string {

@@ -1,20 +1,25 @@
 package vmm
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -24,43 +29,43 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
+	"github.com/pkg/errors"
 )
 
-// for DefaultNetwork: although the ideal design is to setup a new bridge network so as
-// to ensure better isolation between matrisea and other docker workloads on the same host.
-// However, this could introduce in-container DNS failure on Ubuntu 18.09+ as 18.09+ defaults
-// to systemd-resolved for host DNS management.
-//
-// More details: https://github.com/moby/moby/issues/38243
 var (
-	CFPrefix       = "matrisea-cvd-" // container name prefix
-	DefaultNetwork = "bridge"        // use docker's default bridge
-	CFImage        = "cuttlefish"    // cuttlefish image name
-	HomeDir        = "/home/vsoc-01" // workdir in container
-	TimeoutVMStart = 120 * time.Second
+	// DefaultNetwork: although the ideal design is to setup a new bridge network so as
+	// to ensure better isolation between matrisea and other docker workloads on the same host.
+	// However, this could introduce in-container DNS failure on Ubuntu 18.09+ as 18.09+ defaults
+	// to systemd-resolved for host DNS management. (More details https://github.com/moby/moby/issues/38243)
+	DefaultNetwork   = "bridge"        // use docker's default bridge
+	CFImage          = "cuttlefish"    // cuttlefish image name
+	HomeDir          = "/home/vsoc-01" // workdir in container
+	TimeoutVMStart   = 120 * time.Second
+	HomeDirSizeLimit = 50 //soft disk quota for HomeDir
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
-// In Matrisea, a cuttlefish VM is essentially a crosvm process running in a docker container.
+// A `VM` is essentially a crosvm process running in a docker container.
 // To avoid confusion between a `VM` and a `Container`, here by convention
 //   - The word `VM` is used exclusively in exported functions for VM lifecycle management
 //   - The word `container` is used else where for direct interaction with the underlying containers
 //
-// Caller of VMM is responsible to follow the call sequence when setting up a VM:
-//   1. Create a folder in $DATA/devices/your-device-name and upload device images
+// When setting up a new VM, the caller of should follow the call sequence below:
+//   1. Create a folder in $DATA/devices/your-device-name and upload device images (system + CVD images)
 //   2. VMCreate(your-device-name)
-//   3. VMLoadFile() to copy images to the container's WorkDir
-//   4. VMStart()
+//   3. VMVMPreBootSetup() to install packages and start daemons
+//   4. VMLoadFile() to copy the system image to the container's WorkDir
+//   5. VMUnzipImage() to unzip the system image
+//	 6. VMLoadFile() to copy CVD image to the container's WorkDir
+//   7. VMStart()
 type VMM struct {
 	Client     *client.Client // Docker Engine client
 	DataDir    string
 	DevicesDir string
 	DBDir      string
 	UploadDir  string
-}
-
-type VMMError struct {
-	msg string // description of error
+	createMu   sync.Mutex // for concurrent CreateVM() call
+	CFPrefix   string     // container name prefix
 }
 
 type VMItem struct {
@@ -74,15 +79,16 @@ type VMItem struct {
 	CFInstance string   `json:"cf_instance"`
 	CPU        int      `json:"cpu"`
 	RAM        int      `json:"ram"`
+	OSVersion  string   `json:"os_version"`
 }
-
-type VMs []VMItem
 
 type VMStatus int
 
 const (
-	VMReady   VMStatus = iota // container is up but crosvm not running
-	VMRunning VMStatus = iota // crosvm is running
+	// container is up but crosvm not running
+	VMReady VMStatus = iota
+	// crosvm is running
+	VMRunning VMStatus = iota
 	// Container is in created/paused/restarting/removing/exited/dead status (not "running")
 	// which shouldn't happen if the container is fully managed by Matrisea.
 	// Require admin intervention to remove/resume using Docker CLI
@@ -96,30 +102,20 @@ type ExecResult struct {
 	errBuffer *bytes.Buffer
 }
 
-// Stdout returns stdout output of a command run by Exec()
-func (res *ExecResult) Stdout() string {
-	return res.outBuffer.String()
+func NewVMM(dataDir string) *VMM {
+	v := NewVMMImpl(dataDir, "matrisea-cvd-")
+	// watch for VMs in boot loops
+	v.diskSheriff()
+	return v
 }
 
-// Stderr returns stderr output of a command run by Exec()
-func (res *ExecResult) Stderr() string {
-	return res.errBuffer.String()
-}
-
-// Combined returns combined stdout and stderr output of a command run by Exec()
-func (res *ExecResult) Combined() string {
-	return res.outBuffer.String() + res.errBuffer.String()
-}
-
-func (e *VMMError) Error() string { return e.msg }
-
-func NewVMM(dataDir string) (*VMM, error) {
+func NewVMMImpl(dataDir string, cfPrefix string) *VMM {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, err
+		log.Fatalf("Failed to create a Docker API client. Reason: %v", err)
 	}
 
-	// populate initial data folder structure
+	// populate initial data folders
 	devicesDir := path.Join(dataDir, "devices")
 	dbDir := path.Join(dataDir, "db")
 	uploadDir := path.Join(dataDir, "upload")
@@ -134,37 +130,54 @@ func NewVMM(dataDir string) (*VMM, error) {
 		if _, err := os.Stat(f); os.IsNotExist(err) {
 			err := os.Mkdir(f, 0755)
 			if err != nil {
-				return nil, err
+				log.Fatalf("Failed to create folder %s. Reason: %v", f, err)
 			}
 		}
 	}
-
 	log.Printf("DATA_DIR=%s\n", dataDir)
 
-	return &VMM{
+	v := &VMM{
 		Client:     cli,
 		DataDir:    dataDir,
 		DevicesDir: devicesDir,
 		DBDir:      dbDir,
 		UploadDir:  uploadDir,
-	}, nil
+		CFPrefix:   cfPrefix,
+	}
+	return v
 }
 
 // the caller is responsible for setting up device folder
 // assume docker's default network exist on the host
-func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) (name string, err error) {
+func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) (string, error) {
 	ctx := context.Background()
-	containerName := CFPrefix + deviceName
+	containerName := v.CFPrefix + deviceName
+
+	// There will be a race condition on cfInstance if VMCreate() is called multiple times.
+	// More specifically, findNextAvailableCFInstanceNumber() reads labels from existings containers.
+	// If VMCreate() is called twice, both will get the same next available cf_instance as they both see the
+	// same set of containers. By locking createMu, we ensure that one of the VMCreate() call
+	// always complete first and finish creating a new container, so this new container will be counted towards the
+	// next findNextAvailableCFInstanceNumber() call.
+	v.createMu.Lock()
+	defer v.createMu.Unlock()
+
+	deviceDir := path.Join(v.DevicesDir, containerName)
+	if _, err := os.Stat(deviceDir); os.IsNotExist(err) {
+		if err = os.Mkdir(path.Join(v.DevicesDir+"/"+containerName), 0755); err != nil {
+			return "", err
+		}
+	}
 
 	// The next available index of cuttlefish VM. Always >= 1.
 	// It is important for us to keep tracking of this index as cuttlefish use it to derive different
 	// vsock ports for each instance in launch_cvd
-	vmCount, err := v.countVM()
+	cfInstance, err := v.getNextCFInstanceNumber()
+	log.Printf("VMCreate: next available cf_instance %d", cfInstance)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "failed to get next cf_instance")
 	}
-	cfIndex := vmCount + 1
-	websockifyPort, err := nat.NewPort("tcp", strconv.Itoa(6080+cfIndex-1))
+	websockifyPort, err := nat.NewPort("tcp", strconv.Itoa(6080+cfInstance-1))
 	if err != nil {
 		return "", err
 	}
@@ -173,13 +186,14 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{ // for compatibility. Labels are used by android-cuttlefish CLI
-			"cf_instance":               strconv.Itoa(cfIndex),
+			"cf_instance":               strconv.Itoa(cfInstance),
 			"n_cf_instances":            "1",
 			"vsock_guest_cid":           "true",
 			"matrisea_device_name":      deviceName,
 			"matrisea_cpu":              strconv.Itoa(cpu),
 			"matrisea_ram":              strconv.Itoa(ram),
-			"matrisea_tag_aosp_version": aospVersion,
+			"matrisea_aosp_version":     aospVersion,
+			"matrisea_tag_aosp_version": aospVersion, // tags are for display only
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -187,11 +201,6 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		ExposedPorts: nat.PortSet{
 			websockifyPort: struct{}{},
 		},
-	}
-
-	imageDir := path.Join(v.DevicesDir, containerName)
-	if _, err := os.Stat(imageDir); os.IsNotExist(err) {
-		return "", err
 	}
 
 	hostConfig := &container.HostConfig{
@@ -203,13 +212,19 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 				Target:   "/sys/fs/cgroup",
 				ReadOnly: false,
 			},
+			{
+				Type:     mount.TypeBind,
+				Source:   deviceDir,
+				Target:   "/data",
+				ReadOnly: false,
+			},
 		},
 		PortBindings: nat.PortMap{
 			websockifyPort: []nat.PortBinding{
 				{
 					// expose websockify port
 					HostIP:   "0.0.0.0",
-					HostPort: strconv.Itoa(6080 + cfIndex - 1),
+					HostPort: strconv.Itoa(6080 + cfInstance - 1),
 				},
 			},
 		},
@@ -225,59 +240,83 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 
 	resp, err := v.Client.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, containerName)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "ContainerCreate")
 	}
 	if err := v.Client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		return "", err
-	}
-	// start auxillary deamons
-	err = v.startVNCProxy(containerName)
-	if err != nil {
-		return "", err
-	}
-	err = v.installTools(containerName)
-	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "ContainerStart")
 	}
 
-	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfIndex)
+	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfInstance)
 
 	return containerName, nil
 }
 
-// run launch_cvd inside of a running container
-// notice VMStart() doesn't guarentee succeesful VM boot if the boot process takes more than timeout
-func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err error) {
-	start := time.Now()
-	cf_instance, err := v.getVMInstanceNum(containerName)
-	if err != nil {
+// Install necessary tools and start auxillary deamons in the VM's container
+func (v *VMM) VMPreBootSetup(containerName string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
 		return err
+	}
+	err := v.installTools(containerName)
+	if err != nil {
+		return errors.Wrap(err, "installTools")
+	}
+	err = v.startVNCProxy(containerName)
+	if err != nil {
+		return errors.Wrap(err, "startVNCProxy")
+	}
+	return nil
+}
+
+// Run launch_cvd inside of a running container.
+// Notice VMStart() doesn't guarentee succeesful VM boot. If launch_cvd takes more time than the timeout limit,
+// launch_cvd will continue in the background and VMStart will return a timeout error.
+//
+// If isAsync is set to ture, we wait for the VM to boot, read stdout continuously, and return success only until we see
+// VIRTUAL_DEVICE_BOOT_COMPLETED in the log. This mode is only used at VM creation time to ensure the new VM can
+// boot successfuly for the first time.
+// When isAysnc is true, the caller can supply a callback functions, which will be called to every time there's new console
+// message from the launcher. The callback function can be used to stream live launch_cvd stdout/stderr.
+func (v *VMM) VMStart(containerName string, isAsync bool, options string, callback func(string)) error {
+	start := time.Now()
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return err
+	}
+	cf_instance, err := v.getContainerCFInstanceNumber(containerName)
+	if err != nil {
+		return errors.Wrap(err, "getContainerCFInstanceNumber")
 	}
 	labels, err := v.getContainerLabels(containerName)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "getContainerLabels")
 	}
 	memory_gb, err := strconv.Atoi(labels["matrisea_ram"])
 	if err != nil {
-		return err
+		return errors.Wrap(err, "read matrisea_ram label")
 	}
-	// To show the files that define the flags, run bin/launch_cvd --help
+
+	aospVersion, err := v.VMGetAOSPVersion(containerName)
+	if err != nil {
+		return errors.Wrap(err, "read AOSP version label")
+	}
+	// To show the files that define the flags, run `./bin/launch_cvd --help`
 	//
-	// TODO add support for cvd-host_packages in Android 11 and below
-	// TODO ask user to choose android version when creating CVDs
-	//
-	// Both --vsock_guest_cid and --base_instance_num are required to allow running multiple CVDs in the same host.
-	// However, such flags are only included in the cvd-host_packages.tar since aosp_12_gsi. Supplying the flags
-	// to an image of Android 11 or below will result in error and cause launch_cvd to abort at the start.
+	// vsock and network ports of cuttlefish containers are created in the host's namespace. To avoid conflict and
+	// run multiple CVDs on the same host, we need to define both
+	//    1. --vsock_guest_cid AND
+	//    2. --base_instance_num (added in android_12_gsi for launch_cvd) OR CUTTLEFISH_INSTANCE (as env variable, works for android_gsi_{10-12})
 	launch_cmd := []string{
 		path.Join(HomeDir, "/bin/launch_cvd"),
 		"--nostart_webrtc",
 		"--start_vnc_server",
-		fmt.Sprintf("--base_instance_num=%d", cf_instance), //added in aosp 12 gsi
-		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2), //added in aosp 12 gsi
-		"--report_anonymous_usage_stats=y",                 //added in aosp 12 gsi
+		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2),
 		fmt.Sprintf("--cpus=%s", labels["matrisea_cpu"]),
 		fmt.Sprintf("--memory_mb=%d", memory_gb*1024),
+		"--guest_audit_security=false",
+		"--guest_enforce_security=false",
+	}
+
+	if aospVersion == "Android 12" {
+		launch_cmd = append(launch_cmd, "--report_anonymous_usage_stats=y")
 	}
 	log.Println("VMStart cmdline: ", launch_cmd)
 
@@ -289,22 +328,30 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 		AttachStderr: true,
 		Cmd:          launch_cmd,
 		Tty:          true,
+		Env:          []string{fmt.Sprintf("CUTTLEFISH_INSTANCE=%d", cf_instance)},
 	})
 
 	if err != nil {
-		return err
+		return errors.Wrap(err, "docker: failed to create an exec config")
 	}
 
 	// cmd only get executed after ContainerExecAttach
 	aresp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "docker: failed to execute/attach to launch_cvd")
 	}
 	defer aresp.Close()
 
-	// If isAsync is ture, we wait for the VM to boot, read stdout continuously, and return success only until we see
-	// VIRTUAL_DEVICE_BOOT_COMPLETED in the log. This mode is only used at VM creation time to ensure the new VM can
-	// boot successfuly for the first time.
+	// adb daemon needs to wait for the VM to boot in order to connect.
+	// As we can't know for sure when the VM will start listening, our best chance to start adb daemon is to
+	// wait for VMStart to complete/timeout
+	defer func() {
+		err = v.startADBDaemon(containerName)
+		if err != nil {
+			log.Printf("error: failed to startADBDaemon in %s. reason:%v", containerName, err)
+		}
+	}()
+
 	if !isAsync {
 		outputDone := make(chan int)
 
@@ -313,6 +360,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 			for scanner.Scan() {
 				line := scanner.Text()
 				fmt.Println(line)
+				callback(line)
 				if strings.Contains(line, "VIRTUAL_DEVICE_BOOT_COMPLETED") {
 					outputDone <- 1
 				}
@@ -324,12 +372,12 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 		case done := <-outputDone:
 			if done == 1 {
 				elapsed := time.Since(start)
-				log.Printf("VMStart successfully in %s\n", elapsed)
+				log.Printf("VMStart (%s): success after %d\n", containerName, elapsed)
 				return nil
 			}
-			return &VMMError{msg: "VMStart EOF while reading output"}
+			return errors.New("VMStart failed as launch_cvd terminated abnormally")
 		case <-time.After(TimeoutVMStart):
-			return &VMMError{msg: "VMStart timeout"}
+			return errors.New("VMStart timeout")
 		}
 	}
 	return nil
@@ -337,6 +385,9 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string) (err e
 
 // kill launch_cvd process in the container
 func (v *VMM) VMStop(containerName string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return err
+	}
 	fmt.Printf("StopVM: %s\n", containerName)
 	ctx := context.Background()
 	resp, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
@@ -348,44 +399,55 @@ func (v *VMM) VMStop(containerName string) error {
 		Tty:          true,
 	})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to create an exec config in docker")
 	}
 
 	hijackedResp, err := v.Client.ContainerExecAttach(ctx, resp.ID, types.ExecStartCheck{Detach: false, Tty: true})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to execute/attach to stop_cvd")
 	}
-
 	defer hijackedResp.Close()
+
 	scanner := bufio.NewScanner(hijackedResp.Conn)
+	output := ""
 	for scanner.Scan() {
 		line := scanner.Text()
-		fmt.Println(line)
+		output = output + "\n" + line
 		if strings.Contains(line, "Successful") {
+			log.Printf("StopVM (%s): success\n", containerName)
 			return nil
 		}
 	}
-	return &VMMError{msg: "failed to stop the VM"}
+	return errors.New("failed to stop the VM. log: " + output)
 }
 
 func (v *VMM) VMLoadFile(containerName string, srcPath string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return err
+	}
 	return v.containerCopyFile(srcPath, containerName, HomeDir)
 }
 
 func (v *VMM) VMUnzipImage(containerName string, imageFile string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return err
+	}
 	match, _ := regexp.MatchString("^[a-zA-z0-9-_]+\\.zip$", imageFile)
 	if !match {
-		return &VMMError{"Failed to unzip due to invalid zip filename \"" + imageFile + "\""}
+		return errors.New("Failed to unzip due to invalid zip filename \"" + imageFile + "\"")
 	}
 	log.Printf("Unzip %s in container %s at %s", imageFile, containerName, HomeDir)
-	_, err := v.ContainerExec(containerName, "unzip "+path.Join(HomeDir, imageFile), "vsoc-01")
-	return err
+	_, err := v.containerExec(containerName, "unzip "+path.Join(HomeDir, imageFile), "vsoc-01")
+	return errors.Wrap(err, "containerExec")
 }
 
 func (v *VMM) VMRemove(containerName string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return err
+	}
 	containerID, err := v.getContainerIDByName(containerName)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "no containerID")
 	}
 
 	err = v.Client.ContainerRemove(context.Background(), containerID, types.ContainerRemoveOptions{
@@ -394,37 +456,39 @@ func (v *VMM) VMRemove(containerName string) error {
 		RemoveVolumes: true,
 	})
 	if err != nil {
+		return errors.Wrap(err, "docker: ContainerRemove")
+	}
+	err = os.RemoveAll(path.Join(v.DevicesDir, containerName))
+	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
-// remove all managed VMs
+// remove all managed containers
 func (v *VMM) VMPrune() {
-	log.Println("PruneVMs called")
 	cfList, _ := v.listCuttlefishContainers()
 	for _, c := range cfList {
 		err := v.VMRemove(c.Names[0][1:])
 		if err != nil {
-			panic(err)
+			log.Printf("VMPrune (%s): failed. reason:%v\n", c.ID[:10], err)
 		}
-		log.Printf("Removed VM %s\n", c.ID[:10])
+		log.Printf("VMPrune (%s): success\n", c.ID[:10])
 	}
 }
 
-func (v *VMM) VMList() (VMs, error) {
+func (v *VMM) VMList() ([]VMItem, error) {
 	cfList, err := v.listCuttlefishContainers()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "listCuttlefishContainers")
 	}
 
-	resp := VMs{}
+	resp := []VMItem{}
 	for _, c := range cfList {
 		containerName := c.Names[0][1:]
 		status, err := v.getVMStatus(containerName)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "getVMStatus")
 		}
 		cpu, err := strconv.Atoi(c.Labels["matrisea_cpu"])
 		if err != nil {
@@ -449,6 +513,7 @@ func (v *VMM) VMList() (VMs, error) {
 			IP:         c.NetworkSettings.Networks[DefaultNetwork].IPAddress,
 			Status:     status,
 			CFInstance: c.Labels["cf_instance"],
+			OSVersion:  c.Labels["matrisea_aosp_version"],
 			CPU:        cpu,
 			RAM:        ram,
 			Tags:       tags,
@@ -457,53 +522,55 @@ func (v *VMM) VMList() (VMs, error) {
 	return resp, nil
 }
 
-func (v *VMM) countVM() (int, error) {
-	cfList, err := v.listCuttlefishContainers()
-	if err != nil {
-		return -1, err
+func (v *VMM) VMGetAOSPVersion(containerName string) (string, error) {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return "", err
 	}
-	return len(cfList), nil
+	containerJSON, err := v.getContainerJSON(containerName)
+	if err != nil {
+		return "", err
+	}
+	return containerJSON.Config.Labels["matrisea_aosp_version"], nil
 }
 
-func (v *VMM) getVMInstanceNum(containerName string) (int, error) {
-	cid, err := v.getContainerIDByName(containerName)
-	if err != nil {
-		return -1, err
+func (v *VMM) VMInstallAPK(containerName string, apkFile string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return err
 	}
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
-	if err != nil {
-		return -1, err
+	f := path.Join(v.DevicesDir, containerName, apkFile)
+	if _, err := os.Stat(f); os.IsNotExist(err) {
+		log.Printf("VMInstallAPK (%s): abort installAPK because %s does not exist", containerName, f)
+		return fmt.Errorf("apk file %s does not exist", apkFile)
 	}
-	num, err := strconv.Atoi(containerJSON.Config.Labels["cf_instance"])
+	// adb daemon may have been terminated at this point so let's bring it up
+	err := v.startADBDaemon(containerName)
 	if err != nil {
-		return -1, err
+		return errors.Wrap(err, "startADBDaemon")
 	}
-	return num, nil
-}
-
-func (v *VMM) getContainerLabels(containerName string) (map[string]string, error) {
-	cid, err := v.getContainerIDByName(containerName)
+	resp, err := v.containerExec(containerName, "adb install \"/data/"+apkFile+"\"", "vsoc-01")
 	if err != nil {
-		return nil, err
+		return errors.Wrap(err, "adb install failed")
 	}
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), cid)
-	if err != nil {
-		return nil, err
+	if resp.ExitCode != 0 {
+		return errors.New("non-zero exit in installAPK: " + resp.errBuffer.String())
 	}
-	return containerJSON.Config.Labels, nil
+	return nil
 }
 
 // Start a bash shell in the container and returns a bi-directional stream for the frontend to interact with.
 // It's up to the caller to close the hijacked connection by calling types.HijackedResponse.Close.
 // It's up to the caller to call KillTerminal() to kill the long running process at exit
-func (v *VMM) ExecAttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
+func (v *VMM) ContainerAttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return types.HijackedResponse{}, err
+	}
 	log.Printf("ExecAttachToTerminal %s\n", containerName)
 	// TODO to do it properly, might need to get terminal dimensions from the front end
 	// and dynamically adjust docker's tty dimensions
 	// reference: https://github.com/xtermjs/xterm.js/issues/1359
 	cmd := []string{"/bin/bash"}
 	env := []string{"COLUMNS=205", "LINES=40"}
-	return v.ExecAttachToTTYProcess(containerName, cmd, env)
+	return v.ContainerAttachToProcess(containerName, cmd, env)
 }
 
 // Start a long running process with TTY and returns a bi-directional stream for the frontend to interact with.
@@ -525,9 +592,13 @@ func (v *VMM) ExecAttachToTerminal(containerName string) (hr types.HijackedRespo
 //
 // ... which always create a new context.Background(). Apparantly Moby team didn't implement the `maybe` part that allows
 // context passing.
-func (v *VMM) ExecAttachToTTYProcess(containerName string, cmd []string, env []string) (hr types.HijackedResponse, err error) {
+func (v *VMM) ContainerAttachToProcess(containerName string, cmd []string, env []string) (hr types.HijackedResponse, err error) {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return types.HijackedResponse{}, err
+	}
 	ctx := context.Background()
 	ir, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
+		User:         "vsoc-01",
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
@@ -536,19 +607,22 @@ func (v *VMM) ExecAttachToTTYProcess(containerName string, cmd []string, env []s
 		Env:          env,
 	})
 	if err != nil {
-		return types.HijackedResponse{}, err
+		return types.HijackedResponse{}, errors.Wrap(err, "docker: failed to create an exec config")
 	}
 
 	hijackedResp, err := v.Client.ContainerExecAttach(ctx, ir.ID, types.ExecStartCheck{Detach: false, Tty: true})
 	if err != nil {
-		return hijackedResp, err
+		return hijackedResp, errors.Wrap(err, "docker: failed to execute/attach to process")
 	}
 	return hijackedResp, nil
 }
 
 // Kill the bash process after use. To be called after done with the process created by ExecAttachToTerminal().
-func (v *VMM) KillTerminal(containerName string) error {
-	return v.KillTTYProcess(containerName, "/bin/bash")
+func (v *VMM) ContainerKillTerminal(containerName string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return err
+	}
+	return v.ContainerKillProcess(containerName, "/bin/bash")
 }
 
 // Kill all process in the given container with the given cmd. To be called after done with the process created by ExecAttachToTTYProcess().
@@ -558,24 +632,166 @@ func (v *VMM) KillTerminal(containerName string) error {
 // pid namespace. This is because when creating a terminal in AttachToTerminal(), ContainerExecCreate only returns
 // an execID that links to the spawned process's pid in the HOST pid namespace. We can't directly kill a host process unless
 // we run the API server as root, which is undesirable.
-func (v *VMM) KillTTYProcess(containerName string, cmd string) error {
-	resp, err := v.ContainerExec(containerName, fmt.Sprintf("ps -ef | awk '$8==\"%s\" {print $2}'", cmd), "vsoc-01")
-	if err != nil {
+func (v *VMM) ContainerKillProcess(containerName string, cmd string) error {
+	if err := v.isValidManagedContainer(containerName); err != nil {
 		return err
 	}
+	process := strings.Split(cmd, " ")[0]
+	resp, err := v.containerExec(containerName, fmt.Sprintf("ps -ef | awk '$8==\"%s\" {print $2}'", process), "vsoc-01")
+	if err != nil {
+		return errors.Wrap(err, "containerExec list process")
+	}
 	pids := strings.Split(resp.outBuffer.String(), "\n")
+	if len(pids) == 0 {
+		log.Printf("ContainerKillProcess (%s): 0 process found %s\n", containerName, process)
+	}
 	for _, pid := range pids {
 		if pid != "" {
-			_, err := v.ContainerExec(containerName, fmt.Sprintf("kill %s", pid), "root")
+			_, err := v.containerExec(containerName, fmt.Sprintf("kill %s", pid), "root")
 			if err != nil {
 				// kill with best effort so just do logging
-				log.Printf("Failed to kill process %s in container %s due to %s\n", pid, containerName, err.Error())
+				log.Printf("ContainerKillProcess (%s): failed to kill %s;%s due to %v\n", containerName, pid, process, err)
 				continue
 			}
-			log.Printf("Killed process (%s)%s in container %s", pid, cmd, containerName)
+			log.Printf("ContainerKillProcess (%s): killed %s:%s", containerName, pid, process)
 		}
 	}
 	return nil
+}
+
+// Get a list of files in the given container's path, equivalent to running find {folder} -maxdepth 1 -printf "%M|%u|%g|%s|%A@|%P\n"
+// Results are of the following format which each line represents a file/folder
+// -rw-r--r--|vsoc-01|vsoc-01|65536|1645183964.5579601750|vbmeta.img
+func (v *VMM) ContainerListFiles(containerName string, folder string) ([]string, error) {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return []string{}, err
+	}
+	cid, _ := v.getContainerIDByName(containerName)
+	folder = path.Clean(folder)
+	_, err := v.Client.ContainerStatPath(context.Background(), cid, folder)
+	if err != nil {
+		return []string{}, err
+	}
+
+	resp, err := v.containerExec(containerName, "find "+folder+" -maxdepth 1 -printf \"%M|%u|%g|%s|%A@|%P\n\" | sort -t '|' -k6", "vsoc-01")
+	if err != nil || resp.ExitCode != 0 {
+		return []string{}, errors.Wrap(err, "containerExec find")
+	}
+	lines := strings.Split(resp.outBuffer.String(), "\n")
+	// remove the last empty line due to split
+	return lines[:len(lines)-1], nil
+}
+
+// Get content of a file in the container, in the form of bytes
+// Due to CopyFromContainer()'s limitation we can only get a single file as tar archive so we have to untar it in memory
+func (v *VMM) ContainerReadFile(containerName string, filePath string) ([]byte, error) {
+	if err := v.isValidManagedContainer(containerName); err != nil {
+		return []byte{}, err
+	}
+	id, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return []byte{}, err
+	}
+	log.Printf("ContainerReadFile (%s): Copying file %s", containerName, filePath)
+	reader, _, err := v.Client.CopyFromContainer(context.TODO(), id, filePath)
+	if err != nil {
+		return []byte{}, err
+	}
+	tr := tar.NewReader(reader)
+
+	// first param is the header of the tar file
+	_, err = tr.Next()
+	if err == io.EOF {
+		// end of tar archive
+		return []byte{}, errors.Wrap(err, "empty tar")
+	}
+	if err != nil {
+		return []byte{}, errors.Wrap(err, "tar reader")
+	}
+	buf := new(bytes.Buffer)
+	// TODO don't untar large files. Return tar directly
+	buf.ReadFrom(tr)
+	log.Printf("ContainerReadFile (%s): file %s in  size %d", containerName, filePath, buf.Len())
+	return buf.Bytes(), nil
+}
+
+// Get the next smallest cf_instance number that have not been assigned
+func (v *VMM) getNextCFInstanceNumber() (int, error) {
+	// Here we get all cuttlefish containers from the host's view, regardless of which VMM instance they belong to.
+	//
+	// listCuttlefishContainers() and isCuttlefishContainer() are not used because they filter containers
+	// based on v.CFPrefix. In the case that two VMMs are running on the same host (i.e. 1 for dev, 1 for go test),
+	// using above-mentioned functions will create overlapped cf_instance numbers, which could lead to port conflicts.
+	containerList, err := v.Client.ContainerList(context.Background(), types.ContainerListOptions{All: true})
+	if err != nil {
+		return -1, err
+	}
+
+	indexes := []int{}
+	cfList := []types.Container{}
+	for _, c := range containerList {
+		if value, ok := c.Labels["cf_instance"]; ok {
+			cfList = append(cfList, c)
+			cf_idx, err := strconv.Atoi(value)
+			if err != nil {
+				return -1, err
+			}
+			indexes = append(indexes, cf_idx)
+		}
+	}
+	sort.Ints(indexes)
+	log.Printf("getNextCFInstanceNumber: num of existing cuttlefish containers: %d - %v\n", len(indexes), indexes)
+	if len(indexes) == 0 {
+		return 1, nil
+	} else if indexes[len(indexes)-1] == len(cfList) {
+		// if all assigned cf_instance numbers are continueous so far
+		return len(cfList) + 1, nil
+	} else {
+		// find the smallest available cf_instance number
+		i := 1
+		for {
+			if indexes[i-1] != i {
+				return i, nil
+			}
+			i = i + 1
+		}
+	}
+}
+
+func (v *VMM) getContainerCFInstanceNumber(containerName string) (int, error) {
+	containerJSON, err := v.getContainerJSON(containerName)
+	if err != nil {
+		return -1, err
+	}
+	num, err := strconv.Atoi(containerJSON.Config.Labels["cf_instance"])
+	if err != nil {
+		return -1, err
+	}
+	return num, nil
+}
+
+func (v *VMM) getContainerIP(containerName string) (string, error) {
+	containerJSON, err := v.getContainerJSON(containerName)
+	if err != nil {
+		return "", err
+	}
+	return containerJSON.NetworkSettings.IPAddress, nil
+}
+
+func (v *VMM) getContainerLabels(containerName string) (map[string]string, error) {
+	containerJSON, err := v.getContainerJSON(containerName)
+	if err != nil {
+		return nil, err
+	}
+	return containerJSON.Config.Labels, nil
+}
+
+func (v *VMM) getContainerJSON(containerName string) (types.ContainerJSON, error) {
+	cid, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return types.ContainerJSON{}, err
+	}
+	return v.Client.ContainerInspect(context.Background(), cid)
 }
 
 // Install websockify and listen to websocket-based VNC connection on the container port 6080
@@ -588,47 +804,65 @@ func (v *VMM) KillTTYProcess(containerName string, cmd string) error {
 // Notice that websockify only listen on eth0 inside of the container which isn't reachable from outside of the host.
 // The caller of this function is responsible to setup a reverse proxy to enable external VNC access.
 func (v *VMM) startVNCProxy(containerName string) error {
-	cfIndex, err := v.getVMInstanceNum(containerName)
+	cfIndex, err := v.getContainerCFInstanceNumber(containerName)
 	if err != nil {
-		return &VMMError{"Failed to get VMInstanceNumber"}
+		return errors.Wrap(err, "getContainerCFInstanceNumber")
 	}
 	vncPort := 6444 + cfIndex - 1
 	wsPort := 6080 + cfIndex - 1
-	resp, err := v.ContainerExec(containerName, fmt.Sprintf("websockify -D %d 127.0.0.1:%d --log-file websockify.log", wsPort, vncPort), "vsoc-01")
+	resp, err := v.containerExec(containerName, fmt.Sprintf("websockify -D %d 127.0.0.1:%d --log-file websockify.log", wsPort, vncPort), "vsoc-01")
 	if err != nil {
 		return err
 	}
 	if resp.ExitCode != 0 {
-		return &VMMError{"Failed to start websockify"}
+		return errors.New("non-zero exit code in websockify. output:" + resp.errBuffer.String())
 	}
-	log.Println("websockify daemon started")
+	log.Printf("startVNCProxy (%s): websockify daemon started\n", containerName)
+	return nil
+}
+
+// Start an adb daemon in the container and connect to the VM
+// The function should be called when VM has booted up and started listening on the adb port
+// The function is safe to be called repeatedly as adb will ignore duplicated connect commands and return "already connected"
+func (v *VMM) startADBDaemon(containerName string) error {
+	cfIndex, err := v.getContainerCFInstanceNumber(containerName)
+	if err != nil {
+		return err
+	}
+	adbPort := 6520 + cfIndex - 1
+	ip, err := v.getContainerIP(containerName)
+	if err != nil {
+		return err
+	}
+	resp, err := v.containerExec(containerName, fmt.Sprintf("adb connect %s:%d", ip, adbPort), "root")
+	if err != nil {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		return errors.New("non-zero exit code in adb daemon. stderr:" + resp.errBuffer.String())
+	}
+	log.Printf("startADBDaemon (%s): connected to %s:%d\n", containerName, ip, adbPort)
+	log.Printf("startADBDaemon (%s): stdout:%s\n", containerName, resp.outBuffer.String())
+	log.Printf("startADBDaemon (%s): stderr:%s\n", containerName, resp.outBuffer.String())
 	return nil
 }
 
 func (v *VMM) installTools(containerName string) error {
-	resp, err := v.ContainerExec(containerName, "apt install -y -qq adb htop python3-pip iputils-ping less websockify", "root")
+	resp, err := v.containerExec(containerName, "apt install -y -qq adb git htop python3-pip iputils-ping less websockify", "root")
+	if err != nil {
+		return errors.Wrap(err, "failed to execute apt install")
+	}
+	if resp.ExitCode != 0 {
+		return errors.New("Failed to apt install additional tools, reason:" + resp.errBuffer.String())
+	}
+	resp, err = v.containerExec(containerName, "pip3 install frida-tools", "root")
 	if err != nil {
 		return err
 	}
 	if resp.ExitCode != 0 {
-		return &VMMError{"Failed to apt install additional tools"}
-	}
-	resp, err = v.ContainerExec(containerName, "pip3 install frida-tools", "root")
-	if err != nil {
-		return err
-	}
-	if resp.ExitCode != 0 {
-		return &VMMError{"Failed to install python packages"}
+		return errors.New("non-zero return when install python packages. reason:" + resp.errBuffer.String())
 	}
 	return nil
-}
-
-func (v *VMM) getContainerNameByID(containerID string) (name string, err error) {
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), containerID)
-	if err != nil {
-		return "", err
-	}
-	return containerJSON.Name[1:], nil
 }
 
 func (v *VMM) getContainerIDByName(target string) (containerID string, err error) {
@@ -639,30 +873,29 @@ func (v *VMM) getContainerIDByName(target string) (containerID string, err error
 	for _, c := range cfList {
 		for _, name := range c.Names {
 			// docker container names all start with "/"
-			prefix := "/" + CFPrefix
+			prefix := "/" + v.CFPrefix
 			if strings.HasPrefix(name, prefix) && strings.Contains(name, target) {
 				return c.ID, nil
 			}
 		}
 	}
-	return "", nil
+	return "", errors.New("container not found")
 }
 
 // copy a single file into the container
-// if srcPath isn't a tar, it will be tar-ed in a temporary folder first
+// if srcPath isn't a .tar / tar.gz, it will be tar-ed in a temporary folder first
 func (v *VMM) containerCopyFile(srcPath string, containerName string, dstPath string) error {
-	log.Printf("Copy file into container %s:\n", containerName)
-	log.Printf("  src: %s\n", srcPath)
-	log.Printf("  dst: %s\n", dstPath)
 	start := time.Now()
 
-	if strings.HasSuffix(srcPath, ".tar") {
-		v.containerCopyTarFile(srcPath, containerName, dstPath)
+	if strings.HasSuffix(srcPath, ".tar") || strings.HasSuffix(srcPath, ".tar.gz") {
+		if err := v.containerCopyTarFile(srcPath, containerName, dstPath); err != nil {
+			return errors.Wrap(err, "containerCopyTarFile")
+		}
 	}
 
 	tmpdir, err := ioutil.TempDir("", "matrisea")
 	if err != nil {
-		return err
+		return errors.Wrap(err, "cannot create tmp dir")
 	}
 	defer os.RemoveAll(tmpdir)
 	srcFolder, srcFile := filepath.Split(srcPath)
@@ -676,17 +909,16 @@ func (v *VMM) containerCopyFile(srcPath string, containerName string, dstPath st
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		log.Println(fmt.Sprint(err) + ": " + stderr.String())
-		return err
+		return errors.Wrap(err, "error during tar")
 	}
 
 	archive := tmpdir + "/" + srcFile + ".tar"
 	if err = v.containerCopyTarFile(archive, containerName, dstPath); err != nil {
-		return err
+		return errors.Wrap(err, "containerCopyTarFile")
 	}
 
 	elapsed := time.Since(start)
-	log.Printf("  Copy completed in %s\n", elapsed)
+	log.Printf("containerCopyFile (%s): src:%s dst:%s cost:%s\n", containerName, srcPath, dstPath, elapsed)
 	return nil
 }
 
@@ -706,18 +938,19 @@ func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath
 
 	err = v.Client.CopyToContainer(context.Background(), containerID, dstPath, bufio.NewReader(archive), types.CopyToContainerOptions{})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "docker: CopyToContainer")
 	}
 	return nil
 }
 
-// Adapted from moby's exec implementation
-// source: https://github.com/moby/moby/blob/master/integration/internal/container/exec.go
-// Exec executes a command inside a container, returning the result
+// Execute a command in a container and return the result
 // containing stdout, stderr, and exit code. Note:
-//  - this is a synchronous operation;
-//  - cmd stdin is closed.
-func (v *VMM) ContainerExec(containerName string, cmd string, user string) (ExecResult, error) {
+//  - The function is synchronous
+//  - stdin is closed
+//
+// Adapted from moby's exec implementation
+// https://github.com/moby/moby/blob/master/integration/internal/container/exec.go
+func (v *VMM) containerExec(containerName string, cmd string, user string) (ExecResult, error) {
 	// start := time.Now()
 	ctx := context.Background()
 	// prepare exec
@@ -729,14 +962,14 @@ func (v *VMM) ContainerExec(containerName string, cmd string, user string) (Exec
 	}
 	cresp, err := v.Client.ContainerExecCreate(ctx, containerName, execConfig)
 	if err != nil {
-		return ExecResult{}, err
+		return ExecResult{}, errors.Wrap(err, "docker: failed to create an exec config")
 	}
 	execID := cresp.ID
 
 	// run it, with stdout/stderr attached
 	aresp, err := v.Client.ContainerExecAttach(ctx, execID, types.ExecStartCheck{})
 	if err != nil {
-		return ExecResult{}, err
+		return ExecResult{}, errors.Wrap(err, "docker: failed to execute/attach to "+cmd)
 	}
 	defer aresp.Close()
 
@@ -758,13 +991,13 @@ func (v *VMM) ContainerExec(containerName string, cmd string, user string) (Exec
 		break
 
 	case <-ctx.Done():
-		return ExecResult{}, ctx.Err()
+		return ExecResult{}, errors.Wrap(ctx.Err(), "context done")
 	}
 
 	// get the exit code
 	iresp, err := v.Client.ContainerExecInspect(ctx, execID)
 	if err != nil {
-		return ExecResult{}, err
+		return ExecResult{}, errors.Wrap(err, "docker: ContainerExecInspect")
 	}
 
 	// elapsed := time.Since(start)
@@ -778,9 +1011,9 @@ func (v *VMM) ContainerExec(containerName string, cmd string, user string) (Exec
 	return ExecResult{ExitCode: iresp.ExitCode, outBuffer: &outBuf, errBuffer: &errBuf}, nil
 }
 
+// Get a list of containers with names that start with CFPrefix
 func (v *VMM) listCuttlefishContainers() ([]types.Container, error) {
-	ctx := context.Background()
-	containers, err := v.Client.ContainerList(ctx, types.ContainerListOptions{All: true})
+	containers, err := v.Client.ContainerList(context.Background(), types.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err
 	}
@@ -793,12 +1026,10 @@ func (v *VMM) listCuttlefishContainers() ([]types.Container, error) {
 	return cflist, nil
 }
 
+// Derive VM status based on container status and whether launch_cvd is running in the container
+// See VMStatus for the exact mapping
 func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
-	containerID, err := v.getContainerIDByName(containerName)
-	if err != nil {
-		return -1, err
-	}
-	containerJSON, err := v.Client.ContainerInspect(context.Background(), containerID)
+	containerJSON, err := v.getContainerJSON(containerName)
 	if err != nil {
 		return -1, err
 	}
@@ -806,9 +1037,9 @@ func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
 	// Can be one of "created", "running", "paused", "restarting", "removing", "exited", or "dead"
 	if containerJSON.State.Status == "running" {
 		// use grep "[x]xxx" technique to prevent grep itself from showing up in the ps result
-		resp, err := v.ContainerExec(containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
+		resp, err := v.containerExec(containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
 		if err != nil {
-			return -1, err
+			return -1, errors.Wrap(err, "containerExec list process")
 		}
 		if strings.Contains(resp.outBuffer.String(), "launch_cvd") {
 			return VMRunning, nil
@@ -820,11 +1051,10 @@ func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
 }
 
 // get the VMPrefix name of a cuttlefish container
-// if it is not a cuttlefish container, return ""
 func (v *VMM) isCuttlefishContainer(container types.Container) bool {
 	for _, name := range container.Names {
 		// docker container names all start with "/"
-		prefix := "/" + CFPrefix
+		prefix := "/" + v.CFPrefix
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
@@ -832,14 +1062,88 @@ func (v *VMM) isCuttlefishContainer(container types.Container) bool {
 	return false
 }
 
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-func getRandomSequence(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
+// Check if a given container exists && is managed by the VMM instance && is running
+func (v *VMM) isValidManagedContainer(containerName string) error {
+	cid, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return fmt.Errorf("invalid contaienr name: %w", err)
 	}
-	return string(b)
+	cjson, err := v.Client.ContainerInspect(context.Background(), cid)
+	if err != nil {
+		return fmt.Errorf("invalid container, error reading container JSON: %w", err)
+	}
+	if !strings.HasPrefix(cjson.Name, "/"+v.CFPrefix) {
+		return errors.New("invalid container: non-cuttlefish found")
+	}
+	if cjson.State.Status != "running" {
+		return fmt.Errorf("invalid container: container not running")
+	}
+	return nil
+}
+
+// Periodically Check container volume usage (/home/vsoc-01) and stop the VM if the volume size has exceeded the limit
+//
+// This is because cuttlefish forces restart on all crashed subprocesses and there is no option to override such behavior.
+// If a VM has crashed and entered an unrecovable state, launch_cvd will enter a boot loop, generates large amount of launcher log,
+// and eventually fill up the entire disk. Docker's disk quota feature (via --storage-opt) won't help in this case as
+// the feature relies docker's overlayfs2 driver to use a non-default xfs backing fs.
+// To prevent this rare yet devastating scenario a.k.a. device entering a boot loop and left running forever, diskShriff() runs
+// periodically to check if the container's /home/vsoc-01 volume has exceeded a given limit. If true, VMStop is called against the VM.
+func (v *VMM) diskSheriff() {
+	log.Println("DiskSheriff started")
+	go func() {
+		for {
+			containers, err := v.listCuttlefishContainers()
+			if err != nil {
+				log.Printf("DiskSheriff: failed to list containers. error: %v\n", err)
+			}
+
+			for _, c := range containers {
+				containerName := c.Names[0][1:]
+				status, err := v.getVMStatus(containerName)
+				if err != nil {
+					log.Printf("DiskSheriff: failed to get VMStatus error: %v\n", err)
+				}
+				if status == VMRunning {
+					volSize, err := v.getContainerVolumeUsage(containerName)
+					if err != nil {
+						log.Printf("DiskSheriff: failed to get volume usage. error: %v\n", err)
+					}
+					// fmt.Printf("DiskSheriff,%s,%f\n", containerName, float64(volSize)/(math.Pow(1024, 3)))
+					// TODO read limit from container labels
+					if float64(volSize)/(math.Pow(1024, 3)) > float64(HomeDirSizeLimit) {
+						log.Printf("DiskSheriff: VM %s has exceeded disk limit, probably in a boot loop, stopping now\n", containerName)
+						if err := v.VMStop(containerName); err != nil {
+							log.Printf("DiskSheriff: failed to stop VM %s. error %v\n", containerName, err)
+						}
+					}
+				}
+			}
+			time.Sleep(30 * time.Second)
+		}
+	}()
+}
+
+func (v *VMM) getContainerVolumeUsage(containerName string) (int64, error) {
+	// Volume.UsageData.Size is only populates by DiskUsage()
+	du, err := v.Client.DiskUsage(context.Background())
+	if err != nil {
+		return 0, err
+	}
+	c, err := v.getContainerJSON(containerName)
+	if err != nil {
+		return 0, err
+	}
+	for _, m := range c.Mounts {
+		if m.Destination == HomeDir {
+			for _, vol := range du.Volumes {
+				if m.Name == vol.Name {
+					return vol.UsageData.Size, nil
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("couldn't find %s volume in container %s", HomeDir, containerName)
 }
 
 func init() {
