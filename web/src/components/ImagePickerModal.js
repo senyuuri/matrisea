@@ -23,7 +23,7 @@ const ImagePickerModal = ({ visible, onCancelCallback, target, fileList }) => {
     const draggerProps = {
         name: 'file',
         multiple: false,
-        accept: target === "System" ? ".zip" : ".tar",
+        accept: target === "System" ? ".zip" : ".tar,.gz",
         action: API_ENDPOINT + "/files/upload",
         onChange(info) {
             const { status } = info.file;

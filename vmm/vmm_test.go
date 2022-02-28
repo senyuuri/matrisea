@@ -1,12 +1,15 @@
 package vmm
 
 import (
+	"bufio"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +28,7 @@ func TestMain(m *testing.M) {
 	os.Exit(retCode)
 }
 
-// Pre-test setup which also invoke NewVMM and VMCreate
+// Pre-test setup which also invokes NewVMM, VMCreate
 func setup() {
 	testBatch := "matrisea-test-" + randSeq(6) + "-"
 	var err error
@@ -33,7 +36,6 @@ func setup() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(dataDir)
 
 	v = NewMockVMM(dataDir, testBatch)
 	containerName, err = v.VMCreate("01", 2, 4, "Android 12")
@@ -52,6 +54,7 @@ func cleanup() {
 	if err != nil {
 		log.Fatalf("RemoveVM failed. reason: %v\n", err)
 	}
+	os.RemoveAll(dataDir)
 
 	cmd := fmt.Sprintf("docker ps | grep -q %s", containerName)
 	err = exec.Command("bash", "-c", cmd).Run()
@@ -68,170 +71,175 @@ func TestNewVMM(t *testing.T) {
 	assert.DirExists(t, path.Join(dataDir, "upload"))
 }
 
-// func TestGetContainerIDByName(t *testing.T) {
-// 	containerID, err := vmm.getContainerIDByName(vmName)
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
+func TestGetContainerIDByInvalidName(t *testing.T) {
+	_, err := v.getContainerIDByName("invalid-name")
+	assert.Error(t, err)
+}
 
-// 	cmd := fmt.Sprintf("docker ps | grep %s | grep -q %s", vmName, containerID[:12])
-// 	err = exec.Command("bash", "-c", cmd).Run()
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// }
+func TestGetContainerIDByName(t *testing.T) {
+	containerID, err := v.getContainerIDByName(containerName)
+	assert.Nil(t, err)
 
-// func TestGetContainerNameByID(t *testing.T) {
-// 	cmd := fmt.Sprintf("docker ps | grep %s | cut -d ' ' -f 1 | tr -d $'\n'", vmName)
-// 	resp, err := exec.Command("bash", "-c", cmd).Output()
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// 	containerID := strings.TrimRight(string(resp), "\n")
-// 	name, err := vmm.getContainerNameByID(containerID)
-// 	if err != nil || name != vmName {
-// 		t.Error(err.Error())
-// 	}
-// }
+	cmd := fmt.Sprintf("docker ps | grep %s | grep -q %s", containerName, containerID[:12])
+	err = exec.Command("bash", "-c", cmd).Run()
+	assert.Nil(t, err)
+}
 
-// func TestCopyTarToContainer(t *testing.T) {
+func TestVMLoadNonExistFileToContainer(t *testing.T) {
+	err := v.VMLoadFile(containerName, dataDir+"/testfile-non-exist")
+	assert.Error(t, err)
+}
 
-// 	cmd := exec.Command("sh", "-c", "touch testfile && tar -cvf test.tar testfile")
-// 	cmd.Dir = dir
-// 	err = cmd.Run()
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
+func TestCopyTarToContainer(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "touch testfile && tar -cvf test.tar testfile")
+	cmd.Dir = dataDir
+	assert.Nil(t, cmd.Run())
 
-// 	err = vmm.containerCopyFile(dir+"/test.tar", vmName, "/home/vsoc-01")
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// 	cmd = exec.Command("docker", "exec", vmName, "ls", "/home/vsoc-01/testfile")
-// 	if err := cmd.Run(); err != nil {
-// 		if exitError, ok := err.(*exec.ExitError); ok {
-// 			if exitError.ExitCode() != 0 {
-// 				t.Error(err.Error())
-// 			}
-// 		}
-// 	}
-// }
+	err := v.containerCopyFile(dataDir+"/test.tar", containerName, "/home/vsoc-01")
+	assert.Nil(t, err)
 
-// func TestCopyNonTarToContainer(t *testing.T) {
-// 	dir, err := ioutil.TempDir("", "matrisea-test")
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	defer os.RemoveAll(dir)
+	cmd = exec.Command("docker", "exec", containerName, "ls", "/home/vsoc-01/testfile")
+	assert.Nil(t, cmd.Run())
+}
 
-// 	cmd := exec.Command("sh", "-c", "touch testfile")
-// 	cmd.Dir = dir
-// 	err = cmd.Run()
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
+func TestCopyNonTarToContainer(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "touch testfile")
+	cmd.Dir = dataDir
+	assert.Nil(t, cmd.Run())
 
-// 	err = vmm.containerCopyFile(dir+"/testfile", vmName, "/home/vsoc-01")
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// 	cmd = exec.Command("docker", "exec", vmName, "ls", "/home/vsoc-01/testfile")
-// 	if err := cmd.Run(); err != nil {
-// 		if exitError, ok := err.(*exec.ExitError); ok {
-// 			if exitError.ExitCode() != 0 {
-// 				t.Error(err.Error())
-// 			}
-// 		}
-// 	}
-// }
+	err := v.containerCopyFile(dataDir+"/testfile", containerName, "/home/vsoc-01")
+	assert.Nil(t, err)
 
-// func TestStartVNCProxy(t *testing.T) {
-// 	if err := vmm.startVNCProxy(vmName); err != nil {
-// 		t.Fatalf(err.Error())
-// 	}
+	cmd = exec.Command("docker", "exec", containerName, "ls", "/home/vsoc-01/testfile")
+	assert.Nil(t, cmd.Run())
+}
 
-// 	cid, err := vmm.getContainerIDByName(vmName)
-// 	if err != nil {
-// 		t.Fatalf(err.Error())
-// 	}
-// 	cmd := fmt.Sprintf("docker exec %s ps aux | grep -q websockify", cid)
-// 	err = exec.Command("bash", "-c", cmd).Run()
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// }
+func TestContainerExec(t *testing.T) {
+	// non exist user
+	resp, err := v.containerExec(containerName, "unameee", "unknown-user")
+	assert.Nil(t, err)
+	assert.NotZero(t, resp.ExitCode)
 
-// func TestContainerExec(t *testing.T) {
-// 	resp, err := vmm.ContainerExec(vmName, "uname -a", "vsoc-01")
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// 	log.Println(resp.ExitCode)
-// 	log.Println(resp.outBuffer.String())
-// 	log.Println(resp.errBuffer.String())
-// 	if resp.ExitCode != 0 || !strings.Contains(resp.outBuffer.String(), "Linux") {
-// 		t.Error()
-// 	}
-// }
+	// non exist executable
+	resp, err = v.containerExec(containerName, "unameee", "vsoc-01")
+	assert.Nil(t, err)
+	assert.NotZero(t, resp.ExitCode)
+	assert.Equal(t, "/bin/sh: 1: unameee: not found\n", resp.errBuffer.String())
 
-// // test the full cycle from loading device images to start/stop VM
-// // assumes images have already been downloaded into the `images` folder
-// //
-// // TODO setup CI to pull latest images from ci.android.com
-// func TestVMMIntegration(t *testing.T) {
-// 	status, err := vmm.getVMStatus(vmName)
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// 	if status != VMReady {
-// 		t.Fatalf("Incorrect VM status. Status: %d\n", status)
-// 	}
+	// non-zero exit code
+	resp, err = v.containerExec(containerName, "uname -z", "vsoc-01")
+	assert.Nil(t, err)
+	assert.NotZero(t, resp.ExitCode)
+	assert.True(t, strings.HasPrefix(resp.errBuffer.String(), "uname: invalid option"))
 
-// 	err = filepath.Walk(
-// 		"/home/senyuuri/matrisea/data/images/android11-gsi-cf",
-// 		func(path string, f os.FileInfo, err error) error {
-// 			if !f.IsDir() {
-// 				cperr := vmm.containerCopyFile(path, vmName, "/home/vsoc-01")
-// 				if cperr != nil {
-// 					t.Fatal(cperr.Error())
-// 				}
+	// good cmd
+	resp, err = v.containerExec(containerName, "uname", "vsoc-01")
+	assert.Nil(t, err)
+	assert.Zero(t, resp.ExitCode)
+	assert.Equal(t, "Linux\n", resp.outBuffer.String())
+}
 
-// 				if strings.HasSuffix(path, ".zip") {
-// 					_, srcFile := filepath.Split(path)
-// 					resp, err := vmm.ContainerExec(vmName, "unzip "+srcFile+" -d /home/vsoc-01/", "vsoc-01")
-// 					if err != nil {
-// 						t.Fatal(cperr.Error())
-// 					}
-// 					if resp.ExitCode != 0 {
-// 						t.Fatal()
-// 					}
-// 				}
-// 			}
-// 			return nil
-// 		},
-// 	)
+func TestListCuttlefishContainers(t *testing.T) {
+	cflist, err := v.listCuttlefishContainers()
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(cflist))
+}
 
-// 	if err != nil {
-// 		t.Fatal(err.Error())
-// 	}
+func TestIsValidManagedContainer(t *testing.T) {
+	err := v.VMLoadFile("matrisea-non-exist", dataDir+"/testfile-0")
+	assert.Error(t, err)
+}
 
-// 	_, err = vmm.VMStart(vmName, "")
-// 	if err != nil {
-// 		t.Fatal(err.Error())
-// 	}
+func TestContainerListFilesNonExistFolder(t *testing.T) {
+	_, err := v.ContainerListFiles(containerName, "/tmp/non-exist-folder")
+	assert.Error(t, err)
+}
 
-// 	status, err = vmm.getVMStatus(vmName)
-// 	if err != nil {
-// 		t.Error(err.Error())
-// 	}
-// 	if status != VMRunning {
-// 		t.Fatalf("Incorrect VM status. Status: %d\n", status)
-// 	}
+func TestContainerAttachToProcessThenKill(t *testing.T) {
+	hijackedResp, err := v.ContainerAttachToProcess(containerName, []string{"top"}, []string{})
+	assert.Nil(t, err)
+	defer func() {
+		hijackedResp.Conn.Write([]byte("exit\r"))
+		hijackedResp.Close()
+	}()
+	// top process should keep running
+	cid, err := v.getContainerIDByName(containerName)
+	assert.Nil(t, err)
+	cmd := exec.Command("bash", "-c", fmt.Sprintf("docker exec %s ps aux | grep -q [t]op", cid))
+	assert.Nil(t, cmd.Run())
 
-// 	// time.Sleep(30 * time.Second)
-// 	// check if cvd log file is created in the container
+	err = v.ContainerKillProcess(containerName, "top")
+	assert.Nil(t, err)
+	// top should has been killed. grep -q returns a non-zero value if no match found
+	cmd = exec.Command("bash", "-c", fmt.Sprintf("docker exec %s ps aux | grep -q [t]op", cid))
+	assert.Error(t, cmd.Run())
+}
 
-// 	// wait until VM is ready
+func TestVMList(t *testing.T) {
+	cfList, err := v.VMList()
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(cfList))
+}
 
-// 	// vmm.StopVM(vmName)
-// }
+// Test the full cycle from downloading images to start/stop the VM
+// Note: this could take 2-5 minutes depends on network conditions
+func TestVMMIntegration(t *testing.T) {
+	err := v.VMPreBootSetup(containerName)
+	assert.Nil(t, err)
+
+	cid, err := v.getContainerIDByName(containerName)
+	assert.Nil(t, err)
+	cmd := exec.Command("bash", "-c", fmt.Sprintf("docker exec %s ps aux | grep -q [w]ebsockify", cid))
+	assert.Nil(t, cmd.Run())
+
+	status, _ := v.getVMStatus(containerName)
+	assert.Equal(t, VMReady, status)
+
+	// Download the latest system and cvd images
+	log.Println("Start download-aosp.sh")
+	cmd = exec.Command("cp", "download-aosp.sh", v.UploadDir)
+	assert.Nil(t, cmd.Run())
+	cmd = exec.Command("bash", "-c", "set -x && ./download-aosp.sh -A -C -D -K -X -a $(uname -m)")
+	cmd.Dir = v.UploadDir
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Start()
+	scanner := bufio.NewScanner(stdout)
+	scanner.Split(bufio.ScanWords)
+	for scanner.Scan() {
+		m := scanner.Text()
+		fmt.Print(m + " ")
+	}
+	assert.Nil(t, cmd.Wait())
+
+	// Get the filename of the system image
+	systemImage := ""
+	err = filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
+		assert.Nil(t, err)
+		fileName := filepath.Base(path)
+		if strings.HasPrefix(fileName, "aosp_cf_x86_64_phone-img-") {
+			systemImage = fileName
+		}
+		return nil
+	})
+	assert.Nil(t, err)
+
+	// Load system and CVD images
+	err = v.VMLoadFile(containerName, path.Join(v.UploadDir, systemImage))
+	assert.Nil(t, err)
+	err = v.VMUnzipImage(containerName, systemImage)
+	assert.Nil(t, err)
+	err = v.VMLoadFile(containerName, path.Join(v.UploadDir, "cvd-host_package.tar.gz"))
+	assert.Nil(t, err)
+
+	// Try start and stop the VM
+	err = v.VMStart(containerName, false, "", func(lines string) {
+		fmt.Println(lines)
+	})
+	assert.Nil(t, err)
+
+	status, _ = v.getVMStatus(containerName)
+	assert.Equal(t, VMRunning, status)
+
+	err = v.VMStop(containerName)
+	assert.Nil(t, err)
+}
