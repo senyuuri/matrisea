@@ -22,11 +22,17 @@
 ## Quick Start
 
 **System Requirements**
-- Hardware: CPU with virtualization extensions* (Intel VT-x or AMD-V) 
-- OS: Debian / Ubuntu (recommended)
-- Dependencies: Docker 
+- Hardware: CPUs with virtualization extensions* such as
+  - Intel VT-x (check `grep vmx /proc/cpuinfo`)
+  - AMD-V (check `grep svm /proc/cpuinfo`)
+  - ARMv7-A onwards
+- Host OS: Debian / Ubuntu
+- Host Kernel: compiled with `CONFIG_VHOST_VSOCK` and `CONFIG_VHOST_NET`
+- Packages: Docker
 
-*\*If you plan to install Matrisea in a VM, make sure to configure the host to expose hardware-assisted virtualization to the guest.*
+*\*If you plan to run Matrisea in a VM, make sure to configure the host to expose nested virtualization to the guest.*
+- *[ESXi/vSphere - Expose VMware Hardware Assisted Virtualization](https://docs.vmware.com/en/VMware-vSphere/7.0/com.vmware.vsphere.vm_admin.doc/GUID-2A98801C-68E8-47AF-99ED-00C63E4857F6.html)*
+- *[VirtualBox - Nested Virtualization](https://docs.oracle.com/en/virtualization/virtualbox/6.0/admin/nested-virt.html)*
 
 **Installation**
 ```
