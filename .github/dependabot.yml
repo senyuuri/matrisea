@@ -5,12 +5,6 @@
 
 version: 2
 updates:
-  - package-ecosystem: "npm" # See documentation for possible values
-    directory: "/web" # Location of package manifests
-    schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 10
-
   - package-ecosystem: "gomod" 
     directory: "/api" 
     schedule:
