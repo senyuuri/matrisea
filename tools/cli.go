@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"time"
 
 	"github.com/urfave/cli"
 	"sea.com/matrisea/vmm"
@@ -23,18 +24,14 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		if c.String("cmd") == "prunevm" {
 			dataDir := getenv("DATA_DIR", "/tmp/matrisea")
+			cfPrefix := getenv("CF_PREFIX", "matrisea-test-")
 			devicesDir := path.Join(dataDir, "devices")
-			v, err := vmm.NewVMM(dataDir)
-			if err != nil {
-				log.Fatalln(err.Error())
-			}
+			v := vmm.NewVMMImpl(dataDir, cfPrefix, 120*time.Second)
 			v.VMPrune()
-			err = os.RemoveAll(devicesDir)
-			if err != nil {
+			if err := os.RemoveAll(devicesDir); err != nil {
 				log.Fatalln(err.Error())
 			}
-			os.Mkdir(devicesDir, 0755)
-			if err != nil {
+			if err := os.Mkdir(devicesDir, 0755); err != nil {
 				log.Fatalln(err.Error())
 			}
 			return nil
