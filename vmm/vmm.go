@@ -254,7 +254,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 
 // Install necessary tools and start auxillary deamons in the VM's container
 func (v *VMM) VMPreBootSetup(containerName string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	err := v.installTools(containerName)
@@ -279,7 +279,7 @@ func (v *VMM) VMPreBootSetup(containerName string) error {
 // message from the launcher. The callback function can be used to stream live launch_cvd stdout/stderr.
 func (v *VMM) VMStart(containerName string, isAsync bool, options string, callback func(string)) error {
 	start := time.Now()
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	cf_instance, err := v.getContainerCFInstanceNumber(containerName)
@@ -386,7 +386,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 
 // kill launch_cvd process in the container
 func (v *VMM) VMStop(containerName string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	fmt.Printf("StopVM: %s\n", containerName)
@@ -423,14 +423,14 @@ func (v *VMM) VMStop(containerName string) error {
 }
 
 func (v *VMM) VMLoadFile(containerName string, srcPath string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	return v.containerCopyFile(srcPath, containerName, HomeDir)
 }
 
 func (v *VMM) VMUnzipImage(containerName string, imageFile string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	match, _ := regexp.MatchString("^[a-zA-z0-9-_]+\\.zip$", imageFile)
@@ -443,7 +443,7 @@ func (v *VMM) VMUnzipImage(containerName string, imageFile string) error {
 }
 
 func (v *VMM) VMRemove(containerName string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedContainer(containerName); err != nil {
 		return err
 	}
 	containerID, err := v.getContainerIDByName(containerName)
@@ -524,7 +524,7 @@ func (v *VMM) VMList() ([]VMItem, error) {
 }
 
 func (v *VMM) VMGetAOSPVersion(containerName string) (string, error) {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return "", err
 	}
 	containerJSON, err := v.getContainerJSON(containerName)
@@ -535,7 +535,7 @@ func (v *VMM) VMGetAOSPVersion(containerName string) (string, error) {
 }
 
 func (v *VMM) VMInstallAPK(containerName string, apkFile string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	f := path.Join(v.DevicesDir, containerName, apkFile)
@@ -562,7 +562,7 @@ func (v *VMM) VMInstallAPK(containerName string, apkFile string) error {
 // It's up to the caller to close the hijacked connection by calling types.HijackedResponse.Close.
 // It's up to the caller to call KillTerminal() to kill the long running process at exit
 func (v *VMM) ContainerAttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return types.HijackedResponse{}, err
 	}
 	log.Printf("ExecAttachToTerminal %s\n", containerName)
@@ -594,7 +594,7 @@ func (v *VMM) ContainerAttachToTerminal(containerName string) (hr types.Hijacked
 // ... which always create a new context.Background(). Apparantly Moby team didn't implement the `maybe` part that allows
 // context passing.
 func (v *VMM) ContainerAttachToProcess(containerName string, cmd []string, env []string) (hr types.HijackedResponse, err error) {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return types.HijackedResponse{}, err
 	}
 	ctx := context.Background()
@@ -620,7 +620,7 @@ func (v *VMM) ContainerAttachToProcess(containerName string, cmd []string, env [
 
 // Kill the bash process after use. To be called after done with the process created by ExecAttachToTerminal().
 func (v *VMM) ContainerKillTerminal(containerName string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	return v.ContainerKillProcess(containerName, "/bin/bash")
@@ -634,7 +634,7 @@ func (v *VMM) ContainerKillTerminal(containerName string) error {
 // an execID that links to the spawned process's pid in the HOST pid namespace. We can't directly kill a host process unless
 // we run the API server as root, which is undesirable.
 func (v *VMM) ContainerKillProcess(containerName string, cmd string) error {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return err
 	}
 	process := strings.Split(cmd, " ")[0]
@@ -664,7 +664,7 @@ func (v *VMM) ContainerKillProcess(containerName string, cmd string) error {
 // Results are of the following format which each line represents a file/folder
 // -rw-r--r--|vsoc-01|vsoc-01|65536|1645183964.5579601750|vbmeta.img
 func (v *VMM) ContainerListFiles(containerName string, folder string) ([]string, error) {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return []string{}, err
 	}
 	cid, _ := v.getContainerIDByName(containerName)
@@ -686,7 +686,7 @@ func (v *VMM) ContainerListFiles(containerName string, folder string) ([]string,
 // Get content of a file in the container, in the form of bytes
 // Due to CopyFromContainer()'s limitation we can only get a single file as tar archive so we have to untar it in memory
 func (v *VMM) ContainerReadFile(containerName string, filePath string) ([]byte, error) {
-	if err := v.isValidManagedContainer(containerName); err != nil {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
 		return []byte{}, err
 	}
 	id, err := v.getContainerIDByName(containerName)
@@ -1064,7 +1064,7 @@ func (v *VMM) isCuttlefishContainer(container types.Container) bool {
 }
 
 // Check if a given container exists && is managed by the VMM instance && is running
-func (v *VMM) isValidManagedContainer(containerName string) error {
+func (v *VMM) isManagedRunningContainer(containerName string) error {
 	cid, err := v.getContainerIDByName(containerName)
 	if err != nil {
 		return fmt.Errorf("invalid contaienr name: %w", err)
@@ -1078,6 +1078,22 @@ func (v *VMM) isValidManagedContainer(containerName string) error {
 	}
 	if cjson.State.Status != "running" {
 		return fmt.Errorf("invalid container: container not running")
+	}
+	return nil
+}
+
+// Check if a given container exists && is managed by the VMM instance
+func (v *VMM) isManagedContainer(containerName string) error {
+	cid, err := v.getContainerIDByName(containerName)
+	if err != nil {
+		return fmt.Errorf("invalid contaienr name: %w", err)
+	}
+	cjson, err := v.Client.ContainerInspect(context.Background(), cid)
+	if err != nil {
+		return fmt.Errorf("invalid container, error reading container JSON: %w", err)
+	}
+	if !strings.HasPrefix(cjson.Name, "/"+v.CFPrefix) {
+		return errors.New("invalid container: non-cuttlefish found")
 	}
 	return nil
 }
