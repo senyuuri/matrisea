@@ -1,11 +1,14 @@
 package vmm
 
-import "math/rand"
+import (
+	"math/rand"
+	"time"
+)
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 func NewMockVMM(dataDir string, testBatch string) *VMM {
-	return NewVMMImpl(dataDir, testBatch)
+	return NewVMMImpl(dataDir, testBatch, 300*time.Second)
 }
 
 func randSeq(n int) string {

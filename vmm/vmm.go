@@ -40,8 +40,7 @@ var (
 	DefaultNetwork   = "bridge"        // use docker's default bridge
 	CFImage          = "cuttlefish"    // cuttlefish image name
 	HomeDir          = "/home/vsoc-01" // workdir in container
-	TimeoutVMStart   = 120 * time.Second
-	HomeDirSizeLimit = 50 //soft disk quota for HomeDir
+	HomeDirSizeLimit = 50              //soft disk quota for HomeDir
 )
 
 // Virtual machine manager that create/start/stop/destroy cuttlefish VMs
@@ -59,13 +58,14 @@ var (
 //	 6. VMLoadFile() to copy CVD image to the container's WorkDir
 //   7. VMStart()
 type VMM struct {
-	Client     *client.Client // Docker Engine client
-	DataDir    string
-	DevicesDir string
-	DBDir      string
-	UploadDir  string
-	createMu   sync.Mutex // for concurrent CreateVM() call
-	CFPrefix   string     // container name prefix
+	Client      *client.Client // Docker Engine client
+	DataDir     string
+	DevicesDir  string
+	DBDir       string
+	UploadDir   string
+	createMu    sync.Mutex // for concurrent CreateVM() call
+	CFPrefix    string     // container name prefix
+	BootTimeout time.Duration
 }
 
 type VMItem struct {
@@ -103,13 +103,13 @@ type ExecResult struct {
 }
 
 func NewVMM(dataDir string) *VMM {
-	v := NewVMMImpl(dataDir, "matrisea-cvd-")
+	v := NewVMMImpl(dataDir, "matrisea-cvd-", 120*time.Second)
 	// watch for VMs in boot loops
 	v.diskSheriff()
 	return v
 }
 
-func NewVMMImpl(dataDir string, cfPrefix string) *VMM {
+func NewVMMImpl(dataDir string, cfPrefix string, bootTimeout time.Duration) *VMM {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatalf("Failed to create a Docker API client. Reason: %v", err)
@@ -137,12 +137,13 @@ func NewVMMImpl(dataDir string, cfPrefix string) *VMM {
 	log.Printf("DATA_DIR=%s\n", dataDir)
 
 	v := &VMM{
-		Client:     cli,
-		DataDir:    dataDir,
-		DevicesDir: devicesDir,
-		DBDir:      dbDir,
-		UploadDir:  uploadDir,
-		CFPrefix:   cfPrefix,
+		Client:      cli,
+		DataDir:     dataDir,
+		DevicesDir:  devicesDir,
+		DBDir:       dbDir,
+		UploadDir:   uploadDir,
+		CFPrefix:    cfPrefix,
+		BootTimeout: bootTimeout,
 	}
 	return v
 }
@@ -164,7 +165,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 
 	deviceDir := path.Join(v.DevicesDir, containerName)
 	if _, err := os.Stat(deviceDir); os.IsNotExist(err) {
-		if err = os.Mkdir(path.Join(v.DevicesDir+"/"+containerName), 0755); err != nil {
+		if err = os.Mkdir(deviceDir, 0755); err != nil {
 			return "", err
 		}
 	}
@@ -376,7 +377,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 				return nil
 			}
 			return errors.New("VMStart failed as launch_cvd terminated abnormally")
-		case <-time.After(TimeoutVMStart):
+		case <-time.After(v.BootTimeout):
 			return errors.New("VMStart timeout")
 		}
 	}
