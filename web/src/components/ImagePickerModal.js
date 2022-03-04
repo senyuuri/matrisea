@@ -59,7 +59,7 @@ const ImagePickerModal = ({ visible, onCancelCallback, target, fileList }) => {
                 <TabPane tab="Upload New Image" key="2">
                     <Dragger {...draggerProps}>
                         <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-                        <p className="ant-upload-hint">Click or drag {target === "System" ? ".zip" : ".tar"} here to upload</p>
+                        <p className="ant-upload-text">Click or drag {target === "System" ? ".zip" : ".tar"} here to upload</p>
                     </Dragger>
                 </TabPane>
                 <TabPane tab="Pick from Android CI" key="3" disabled={true}>

@@ -55,13 +55,21 @@ function DeviceDetail(){
       }
       extra={<>
         <Button icon={<CloudUploadOutlined />} key="install-btn" onClick={showInstallerModal}>Install APK</Button>
-        <Button icon={<PoweroffOutlined />} key="power-btn">Power</Button>
+        {deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 0 ?
+          <Button icon={<PoweroffOutlined />} key="power-btn" onClick={() => startVM(device_name)}>Power</Button> : ""
+        }
+        {deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 1 ?
+          <Button icon={<PoweroffOutlined />} key="power-btn" className="file-btn-chosen" onClick={() => stopVM(device_name)}>Power</Button> : ""
+        }
+        {deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 2 ?
+          <Button icon={<PoweroffOutlined />} key="power-btn" disabled={true}>Power</Button> : ""
+        }
       </>}
       {...props}
     />
   ));
 
-  useEffect(() => {
+  const updateDeviceDetail = useCallback(() => {
     var url = API_ENDPOINT + '/vms/' + device_name
     axios.get(url)
     .then(function (response) {
@@ -83,7 +91,11 @@ function DeviceDetail(){
         message.error("Failed to get device " + device_name + "status due to " + error.response.status + " - " + error.response.data['error']);
       }
     })
-  }, [API_ENDPOINT, device_name])
+  }, [API_ENDPOINT, device_name]);
+
+  useEffect(() => {
+    updateDeviceDetail()
+  }, [updateDeviceDetail])
 
   const handleMenuClick = (e) => {
     setMenuCurrent(e.key);
@@ -128,6 +140,37 @@ function DeviceDetail(){
   const hideInstallerModal = () => {
     setInstallerModalVisible(false);
   };
+
+  function startVM(vm_name) {
+    message.info("Booting the device " + vm_name)
+    var url = API_ENDPOINT + '/vms/' + vm_name + '/start'
+    axios.post(url)
+    .then(function (response) {
+      // query device status after 10s
+      setTimeout(() => {updateDeviceDetail()}, 10000);  
+    })
+    .catch(function (error) {
+      if (error.response) {
+        message.error("Failed to start device " + vm_name + " due to " + error.response.status + " - " + error.response.data['error']);
+      }
+    })
+  }
+
+  function stopVM(vm_name) {
+    message.info("Stopping the deivce " + vm_name);
+    var url = API_ENDPOINT + '/vms/' + vm_name + '/stop'
+    axios.post(url)
+    .then(function (response) {
+      message.success("Device " + vm_name + " stopped successfully")
+       // query device status now
+       updateDeviceDetail();
+    })
+    .catch(function (error) {
+      if (error.response) {
+        message.error("Failed to stop device " + vm_name + " due to " + error.response.status + " - " + error.response.data['error']);
+      }
+    })
+  }
 
   return (
     <div className="site-layout-content">
