@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback} from 'react';
 import { useParams, useHistory } from "react-router-dom";
-import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Spin, Image, message } from 'antd';
+import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Spin, Image, Badge, message } from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
 import { LazyLog, ScrollFollow } from 'react-lazylog';
@@ -40,7 +40,19 @@ function DeviceDetail(){
       ghost={false}
       onBack={() => history.push("/")}
       title={device_name}
-      subTitle={deviceDescription}
+      subTitle={<div>
+          {deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 0 ?
+            <Badge status="default" text="Power Off" style={{paddingRight: "20px"}}/> : ""
+          }
+          {deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 1 ?
+            <Badge status="success" text="Running" style={{paddingRight: "20px"}}/> : ""
+          }
+          {deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 2 ?
+            <Badge status="error" text="Error" style={{paddingRight: "20px"}}/> : ""
+          }
+          {deviceDescription}
+        </div> 
+      }
       extra={<>
         <Button icon={<CloudUploadOutlined />} key="install-btn" onClick={showInstallerModal}>Install APK</Button>
         <Button icon={<PoweroffOutlined />} key="power-btn">Power</Button>
