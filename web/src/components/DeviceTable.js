@@ -81,21 +81,17 @@ function DeviceTable(props) {
         render: (text, row) => {
             let view_link = "/device/" + row["name"] +"/" + row["cf_instance"]
             let actionButton;
-            let viewButton;
             if (row["status"] === 0) {
-              viewButton = <Link to="#" disabled={true}> View </Link>
               actionButton = <Button type="link" onClick={() => startVM(row["name"])}>Start</Button>
             }
             else if (row["status"] === 1) {
-              viewButton = <Link to={view_link} > View </Link>
               actionButton = <Button type="link" onClick={() => stopVM(row["name"])}>Stop</Button>
             }
             else {
-              viewButton = <Link to="#" disabled={true}> View </Link>
               actionButton = <Button type="link" disabled={true}>Start</Button>
             }
             return <Space size="middle">
-              {viewButton}
+              <Link to={view_link} > View </Link>
               {actionButton}
               <Button type="link" onClick={() => deleteVM(row["name"])}>Delete</Button>
             </Space>

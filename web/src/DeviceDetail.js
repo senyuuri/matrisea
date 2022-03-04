@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback} from 'react';
 import { useParams, useHistory } from "react-router-dom";
-import { Menu, Breadcrumb, Row, Col, Button, PageHeader, message } from 'antd';
+import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Spin, Image, message } from 'antd';
 import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
 import { LazyLog, ScrollFollow } from 'react-lazylog';
@@ -18,6 +18,7 @@ function DeviceDetail(){
   const history = useHistory();
   const { device_name, cf_instance } = useParams();
   const [deviceDescription, setDeviceDescription] = useState("");
+  const [deviceDetail, setDeviceDetail] = useState([]);
   const [installerModalVisible, setInstallerModalVisible] = useState(false);
   const [menuCurrent, setMenuCurrent] = useState("terminal");
   const [logSource, setLogSource] = useState("launcher")
@@ -58,9 +59,12 @@ function DeviceDetail(){
         deviceDetail['cpu'] + " vCPU",
         deviceDetail['ram'] + " GB RAM",
         deviceDetail['ip'],
+        deviceDetail['status'],
         "Container ID " + deviceDetail['id'].slice(0,8)
-      ]
+      ];
+      console.log('status', deviceDetail['status'])
       setDeviceDescription(items.join(" / "))
+      setDeviceDetail(deviceDetail);
     })
     .catch(function (error) {
       if (error.response) {
@@ -124,9 +128,13 @@ function DeviceDetail(){
         <MyPageHeader/>
         <Row gutter={16}  key="3" id="detail-flex-content">
           <Col span={6}>
-            <VNCDisplay url={VNC_WS_URL}/>
-            {/* <Spin spinning={true} tip="Waiting for device...">
-              </Spin> */}
+            { deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 1 ?
+              <VNCDisplay url={VNC_WS_URL}/>
+              :
+              <Spin spinning={true} tip="Waiting for device...">
+                <Image preview="false" src="/phone-frame.png"/>
+              </Spin>
+            }
           </Col>
           <Col span={18}>
             <Menu mode="horizontal" onClick={handleMenuClick} selectedKeys={menuCurrent}>
