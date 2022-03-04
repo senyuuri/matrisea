@@ -89,8 +89,10 @@ function DeviceDetail(){
     setMenuCurrent(e.key);
     let options = e.key.split(":")
     if (options[0] === "log") {
+      // if log source has changed
       if (logSource !== options[1]) {
         if (ws) {
+          // stop streming the old log source
           ws.close();
         }
         setLog("");

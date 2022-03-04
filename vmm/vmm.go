@@ -683,6 +683,13 @@ func (v *VMM) ContainerListFiles(containerName string, folder string) ([]string,
 	return lines[:len(lines)-1], nil
 }
 
+// Check if a given file/folder exist in the container
+func (v *VMM) ContainaerFileExists(containerName string, filePath string) error {
+	cid, _ := v.getContainerIDByName(containerName)
+	_, err := v.Client.ContainerStatPath(context.Background(), cid, filePath)
+	return err
+}
+
 // Get content of a file in the container, in the form of bytes
 // Due to CopyFromContainer()'s limitation we can only get a single file as tar archive so we have to untar it in memory
 func (v *VMM) ContainerReadFile(containerName string, filePath string) ([]byte, error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"path"
@@ -39,11 +40,16 @@ func LogStreamHandler(c *gin.Context) {
 		return
 	}
 
+	if err := v.ContainaerFileExists(containerName, logFile); err != nil {
+		wsLogSendError(conn, fmt.Sprintf("Log file %s does not exist\n", logFile))
+		return
+	}
+
 	cmd := []string{"tail", "-n", "2000", "-f", logFile}
 	// run bash in container and get the hijacked session
 	hijackedResp, err := v.ContainerAttachToProcess(containerName, cmd, []string{})
 	if err != nil {
-		log.Println("Failed to get log due to", err.Error())
+		wsLogSendError(conn, fmt.Sprintf("Failed to get log due to %v\n", err))
 		return
 	}
 
@@ -72,6 +78,14 @@ func LogStreamHandler(c *gin.Context) {
 type LogStream struct {
 	buf    string
 	length int
+}
+
+func wsLogSendError(writer *websocket.Conn, msg string) {
+	log.Printf("wsLogSendError: %s\n", msg)
+	err := writer.WriteMessage(websocket.TextMessage, []byte(msg))
+	if err != nil {
+		log.Printf("Another error occured while sending wsLogSendError: %v\n", err)
+	}
 }
 
 // Buffer log and send in batches. The log is flushed to WS writer when either
