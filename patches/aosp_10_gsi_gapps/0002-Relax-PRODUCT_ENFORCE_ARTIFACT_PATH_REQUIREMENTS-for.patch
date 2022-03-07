@@ -1,0 +1,39 @@
+From bc745aaa91f514c98d118dfded070ad06fa47f58 Mon Sep 17 00:00:00 2001
+From: senyuuri <senyuuri@gmail.com>
+Date: Mon, 7 Mar 2022 12:02:51 +0800
+Subject: [PATCH 2/2] Relax PRODUCT_ENFORCE_ARTIFACT_PATH_REQUIREMENTS for
+ opengapps on system partition
+
+Change-Id: I426c5dfe101a61d45f395b82097cdb3bea409573
+---
+ vsoc_x86_64/phone/aosp_cf.mk | 14 ++++++++------
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/vsoc_x86_64/phone/aosp_cf.mk b/vsoc_x86_64/phone/aosp_cf.mk
+index 2cca23080..31d89ae89 100644
+--- a/vsoc_x86_64/phone/aosp_cf.mk
++++ b/vsoc_x86_64/phone/aosp_cf.mk
+@@ -31,12 +31,14 @@ PRODUCT_ENFORCE_ARTIFACT_PATH_REQUIREMENTS := relaxed
+ # from the whitelist when Q is released. See b/131162245 for some details.
+ PRODUCT_ARTIFACT_PATH_REQUIREMENT_WHITELIST += \
+     system/apex/com.android.apex.cts.shim.apex \
+-    system/app/messaging/messaging.apk \
+-    system/lib/libframesequence.so \
+-    system/lib/libgiftranscode.so \
+-    system/lib64/libframesequence.so \
+-    system/lib64/libgiftranscode.so \
+-
++    system/usr/% \
++    system/etc/% \
++    system/framework/% \
++    system/bin/% \
++    system/lib/% \
++    system/lib64% \
++    system/priv-app% \
++    system/app% \
+ #
+ # All components inherited here go to product image (same as GSI product)
+ #
+-- 
+2.25.1
+

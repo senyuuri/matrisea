@@ -1,0 +1,22 @@
+From 384cdac7930e7a2b67fd287cfae943fdaf7e5ca3 Mon Sep 17 00:00:00 2001
+From: Chih-Wei Huang <cwhuang@linux.org.tw>
+Date: Tue, 2 Jul 2019 15:58:26 +0800
+Subject: [PATCH] Only include Android.mk of selected gapps
+
+Some apps don't exist in all archs. Only include makefiles of selected
+apps to avoid such errors:
+
+[570/645] including vendor/opengapps/build/modules/ActionsServices/Android.mk ...
+error: ActionsServices: No source files specified
+---
+ modules/Android.mk | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 modules/Android.mk
+
+diff --git a/modules/Android.mk b/modules/Android.mk
+new file mode 100644
+index 0000000..03d69cf
+--- /dev/null
++++ b/modules/Android.mk
+@@ -0,0 +1 @@
++include $(call all-named-subdir-makefiles,$(GAPPS_PRODUCT_PACKAGES))

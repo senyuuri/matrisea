@@ -1,0 +1,20 @@
+From 3bb6f0804fe5d516b6b0bc68d8a45a2e57f147d5 Mon Sep 17 00:00:00 2001
+From: Chih-Wei Huang <cwhuang@linux.org.tw>
+Date: Tue, 2 Jul 2019 16:15:00 +0800
+Subject: [PATCH] Remove all apps before including opengapps
+
+To avoid conflicts between opengapps and AOSP's default apps.
+Note the clean steps are only executed once.
+---
+ CleanSpec.mk | 2 ++
+ 1 file changed, 2 insertions(+)
+ create mode 100644 CleanSpec.mk
+
+diff --git a/CleanSpec.mk b/CleanSpec.mk
+new file mode 100644
+index 0000000..50b8df1
+--- /dev/null
++++ b/CleanSpec.mk
+@@ -0,0 +1,2 @@
++$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/app/*)
++$(call add-clean-step, rm -rf $(PRODUCT_OUT)/system/priv-app/*)

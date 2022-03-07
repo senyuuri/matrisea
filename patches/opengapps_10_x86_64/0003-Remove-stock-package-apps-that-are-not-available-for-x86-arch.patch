@@ -1,0 +1,30 @@
+From 963c15590c8ea80f51205c189efd84a134adbc95 Mon Sep 17 00:00:00 2001
+From: Francescodario Cuzzocrea <bosconovic@gmail.com>
+Date: Sun, 29 Mar 2020 11:45:44 +0200
+Subject: [PATCH] remove from stock package apps that are not available for x86
+ arch
+
+---
+ opengapps-packages.mk | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/opengapps-packages.mk b/opengapps-packages.mk
+index 95f7a31..fc37218 100644
+--- a/opengapps-packages.mk
++++ b/opengapps-packages.mk
+@@ -59,7 +59,6 @@ GAPPS_PRODUCT_PACKAGES += \
+ ifneq ($(filter 28,$(call get-allowed-api-levels)),)
+ GAPPS_PRODUCT_PACKAGES += \
+     DigitalWellbeing \
+-    MarkupGoogle \
+     SoundPicker
+ endif
+ 
+@@ -113,7 +112,6 @@ ifneq ($(filter stock,$(TARGET_GAPPS_VARIANT)),) # require at least stock
+ GAPPS_FORCE_MMS_OVERRIDES := true
+ GAPPS_FORCE_WEBVIEW_OVERRIDES := true
+ GAPPS_PRODUCT_PACKAGES += \
+-    GoogleCamera \
+     GoogleContacts \
+     LatinImeGoogle \
+     StorageManagerGoogle \

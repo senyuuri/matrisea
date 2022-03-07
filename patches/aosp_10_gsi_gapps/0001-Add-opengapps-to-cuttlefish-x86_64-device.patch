@@ -1,0 +1,33 @@
+From dd6accf8fdcd7a9754bc1cfdadd0385423120c6a Mon Sep 17 00:00:00 2001
+From: senyuuri <senyuuri@gmail.com>
+Date: Mon, 7 Mar 2022 12:01:27 +0800
+Subject: [PATCH 1/2] Add opengapps to cuttlefish x86_64 device
+
+Change-Id: I216f25f27b3a7a7f4fe7ba51362fbb31b41dd3b2
+---
+ vsoc_x86_64/phone/aosp_cf.mk | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/vsoc_x86_64/phone/aosp_cf.mk b/vsoc_x86_64/phone/aosp_cf.mk
+index 15482b612..2cca23080 100644
+--- a/vsoc_x86_64/phone/aosp_cf.mk
++++ b/vsoc_x86_64/phone/aosp_cf.mk
+@@ -17,6 +17,7 @@
+ #
+ # All components inherited here go to system image (same as GSI system)
+ #
++GAPPS_VARIANT := nano
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit.mk)
+ 
+ PRODUCT_ARTIFACT_PATH_REQUIREMENT_WHITELIST += \
+@@ -53,6 +54,7 @@ DEVICE_PACKAGE_OVERLAYS += device/google/cuttlefish/vsoc_x86_64/phone/overlay
+ 
+ $(call inherit-product, device/google/cuttlefish/vsoc_x86_64/device.mk)
+ 
++$(call inherit-product, vendor/opengapps/build/opengapps-packages.mk)
+ 
+ # Exclude features that are not available on AOSP devices.
+ PRODUCT_COPY_FILES += \
+-- 
+2.25.1
+

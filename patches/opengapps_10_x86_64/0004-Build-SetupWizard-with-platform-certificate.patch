@@ -1,0 +1,23 @@
+From 17005a35c4e7af09ad2689f2ebc338a8b3bdd722 Mon Sep 17 00:00:00 2001
+From: senyuuri <senyuuri@gmail.com>
+Date: Mon, 7 Mar 2022 12:16:11 +0800
+Subject: [PATCH] Build SetupWizard with platform certificate
+
+---
+ modules/SetupWizard/Android.mk | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/modules/SetupWizard/Android.mk b/modules/SetupWizard/Android.mk
+index c640317..90fc87c 100644
+--- a/modules/SetupWizard/Android.mk
++++ b/modules/SetupWizard/Android.mk
+@@ -14,6 +14,7 @@ else
+   endif
+ endif
+
++LOCAL_CERTIFICATE := platform
+ LOCAL_PRIVILEGED_MODULE := true
+ LOCAL_OVERRIDES_PACKAGES := Provision
+
+--
+2.25.1
