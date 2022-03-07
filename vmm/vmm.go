@@ -1,7 +1,6 @@
 package vmm
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
@@ -690,37 +689,24 @@ func (v *VMM) ContainaerFileExists(containerName string, filePath string) error 
 	return err
 }
 
-// Get content of a file in the container, in the form of bytes
-// Due to CopyFromContainer()'s limitation we can only get a single file as tar archive so we have to untar it in memory
-func (v *VMM) ContainerReadFile(containerName string, filePath string) ([]byte, error) {
+// Get a reader of a file in the container. As per Moby API's design, the file will be in TAR format so
+// the caller should use tar.NewReader(reader) to obtain a corresponding tar reader.
+// It is up to the caller to close the reader.
+func (v *VMM) ContainerReadFile(containerName string, filePath string) (io.ReadCloser, error) {
 	if err := v.isManagedRunningContainer(containerName); err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	id, err := v.getContainerIDByName(containerName)
 	if err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	log.Printf("ContainerReadFile (%s): Copying file %s", containerName, filePath)
-	reader, _, err := v.Client.CopyFromContainer(context.TODO(), id, filePath)
+	// notice the API returns a reader for a TAR archive
+	rc, _, err := v.Client.CopyFromContainer(context.TODO(), id, filePath)
 	if err != nil {
-		return []byte{}, err
+		return nil, err
 	}
-	tr := tar.NewReader(reader)
-
-	// first param is the header of the tar file
-	_, err = tr.Next()
-	if err == io.EOF {
-		// end of tar archive
-		return []byte{}, errors.Wrap(err, "empty tar")
-	}
-	if err != nil {
-		return []byte{}, errors.Wrap(err, "tar reader")
-	}
-	buf := new(bytes.Buffer)
-	// TODO don't untar large files. Return tar directly
-	buf.ReadFrom(tr)
-	log.Printf("ContainerReadFile (%s): file %s in  size %d", containerName, filePath, buf.Len())
-	return buf.Bytes(), nil
+	return rc, nil
 }
 
 // Get the next smallest cf_instance number that have not been assigned

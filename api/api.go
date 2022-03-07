@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/tar"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -559,14 +560,27 @@ func downloadWorkspaceFile(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid query path"})
 		return
 	}
-	fileBytes, err := v.ContainerReadFile(containerName, p)
+	reader, err := v.ContainerReadFile(containerName, p)
 	if err != nil {
 		log.Println(err.Error())
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(p)))
-	c.Data(http.StatusOK, "application/octet-stream", fileBytes)
+	defer reader.Close()
+
+	tr := tar.NewReader(reader)
+	// first param is the header of the tar file
+	header, err := tr.Next()
+	if err != nil {
+		log.Println(err.Error())
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	extraHeaders := map[string]string{
+		"Content-Disposition": fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(p)),
+	}
+	c.DataFromReader(http.StatusOK, header.Size, "application/octet-stream", tr, extraHeaders)
 }
 
 func getenv(key, fallback string) string {
