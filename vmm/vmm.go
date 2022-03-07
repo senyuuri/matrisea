@@ -482,11 +482,9 @@ func (v *VMM) VMList() ([]VMItem, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "listCuttlefishContainers")
 	}
-
 	resp := []VMItem{}
 	for _, c := range cfList {
-		containerName := c.Names[0][1:]
-		status, err := v.getVMStatus(containerName)
+		status, err := v.getVMStatus(c)
 		if err != nil {
 			return nil, errors.Wrap(err, "getVMStatus")
 		}
@@ -937,6 +935,10 @@ func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath
 	return nil
 }
 
+func (v *VMM) containerExec(containerName string, cmd string, user string) (ExecResult, error) {
+	return v.containerExecWithContext(context.Background(), containerName, cmd, user)
+}
+
 // Execute a command in a container and return the result
 // containing stdout, stderr, and exit code. Note:
 //  - The function is synchronous
@@ -944,9 +946,7 @@ func (v *VMM) containerCopyTarFile(srcPath string, containerName string, dstPath
 //
 // Adapted from moby's exec implementation
 // https://github.com/moby/moby/blob/master/integration/internal/container/exec.go
-func (v *VMM) containerExec(containerName string, cmd string, user string) (ExecResult, error) {
-	// start := time.Now()
-	ctx := context.Background()
+func (v *VMM) containerExecWithContext(ctx context.Context, containerName string, cmd string, user string) (ExecResult, error) {
 	// prepare exec
 	execConfig := types.ExecConfig{
 		User:         user,
@@ -959,14 +959,12 @@ func (v *VMM) containerExec(containerName string, cmd string, user string) (Exec
 		return ExecResult{}, errors.Wrap(err, "docker: failed to create an exec config")
 	}
 	execID := cresp.ID
-
 	// run it, with stdout/stderr attached
 	aresp, err := v.Client.ContainerExecAttach(ctx, execID, types.ExecStartCheck{})
 	if err != nil {
 		return ExecResult{}, errors.Wrap(err, "docker: failed to execute/attach to "+cmd)
 	}
 	defer aresp.Close()
-
 	// read the output
 	var outBuf, errBuf bytes.Buffer
 	outputDone := make(chan error, 1)
@@ -987,13 +985,11 @@ func (v *VMM) containerExec(containerName string, cmd string, user string) (Exec
 	case <-ctx.Done():
 		return ExecResult{}, errors.Wrap(ctx.Err(), "context done")
 	}
-
 	// get the exit code
 	iresp, err := v.Client.ContainerExecInspect(ctx, execID)
 	if err != nil {
 		return ExecResult{}, errors.Wrap(err, "docker: ContainerExecInspect")
 	}
-
 	// elapsed := time.Since(start)
 	// if iresp.ExitCode != 0 {
 	// 	log.Printf("ContainerExec %s: %s\n", containerName, cmd)
@@ -1020,27 +1016,53 @@ func (v *VMM) listCuttlefishContainers() ([]types.Container, error) {
 	return cflist, nil
 }
 
+type ExecChannelResult struct {
+	resp ExecResult
+	err  error
+}
+
 // Derive VM status based on container status and whether launch_cvd is running in the container
 // See VMStatus for the exact mapping
-func (v *VMM) getVMStatus(containerName string) (VMStatus, error) {
-	containerJSON, err := v.getContainerJSON(containerName)
-	if err != nil {
-		return -1, err
-	}
-	// String representation of the container state
-	// Can be one of "created", "running", "paused", "restarting", "removing", "exited", or "dead"
-	if containerJSON.State.Status == "running" {
-		// use grep "[x]xxx" technique to prevent grep itself from showing up in the ps result
-		resp, err := v.containerExec(containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
-		if err != nil {
-			return -1, errors.Wrap(err, "containerExec list process")
+func (v *VMM) getVMStatus(c types.Container) (VMStatus, error) {
+	// Create a context that will be canceled in 200ms
+	//
+	// Many Moby APIs acquires a per-container lock during execution. For example, in Daemon.containerCopy (used by VMM.containerCopyFile):
+	// https://github.com/moby/moby/blob/eb9e42a09ee123af1d95bf7d46dd738258fa2109/daemon/archive.go#L390
+	// If one of such APIs runs for a long time (e.g. copy a large file from a container), the container's lock
+	// can be held long enough that blocks subsequent API calls. Unfortunately, getVMStatus is the one that gets
+	// blocked the most because it's used by VMList, one of the hottest code path that gets called by every client
+	// every 5 seconds. Hence, to avoid waiting for a container's lock indefinitely, we only try query a container's
+	// process list (`ps aux`) for a limited amount of time
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	containerName := c.Names[0][1:]
+	// When a container is up, c.Status looks like "Up 2 days"
+	if strings.HasPrefix(c.Status, "Up") {
+		ch := make(chan ExecChannelResult, 1)
+		go func() {
+			// use grep "[x]xxx" technique to prevent grep itself from showing up in the ps result
+			resp, err := v.containerExecWithContext(ctx, containerName, "ps aux|grep \"[l]aunch_cvd\"", "vsoc-01")
+			ch <- ExecChannelResult{resp, err}
+		}()
+
+		select {
+		case <-ctx.Done():
+			// The container's lock is held by others, probably busy doing other tasks
+			// The container is certainly running but we're not sure about launch_cvd
+			fmt.Printf("getVMStatus (%s): Timeout warning. Defaulting to VMReady\n", containerName)
+			return VMReady, nil
+		case execResult := <-ch:
+			if execResult.err != nil {
+				fmt.Printf("getVMStatus failed to list processes: %v\n", execResult.err)
+				return -1, errors.Wrap(execResult.err, "getVMStatus failed to top")
+			}
+			if strings.Contains(execResult.resp.outBuffer.String(), "launch_cvd") {
+				return VMRunning, nil
+			}
+			return VMReady, nil
 		}
-		if strings.Contains(resp.outBuffer.String(), "launch_cvd") {
-			return VMRunning, nil
-		}
-		return VMReady, nil
 	}
-	// log.Printf("Unexpected status %s of container %s\n", containerJSON.State.Status, containerName)
 	return VMContainerError, nil
 }
 
@@ -1110,7 +1132,8 @@ func (v *VMM) diskSheriff() {
 
 			for _, c := range containers {
 				containerName := c.Names[0][1:]
-				status, err := v.getVMStatus(containerName)
+				// It's okay if getVMStatu is busy waiting for a lock. Let other request to finish first
+				status, err := v.getVMStatus(c)
 				if err != nil {
 					log.Printf("DiskSheriff: failed to get VMStatus error: %v\n", err)
 				}
