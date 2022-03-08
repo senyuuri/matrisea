@@ -47,7 +47,7 @@ func LogStreamHandler(c *gin.Context) {
 
 	cmd := []string{"tail", "-n", "2000", "-f", logFile}
 	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ContainerAttachToProcess(containerName, cmd, []string{})
+	_, hijackedResp, err := v.ContainerAttachToProcess(containerName, cmd, []string{})
 	if err != nil {
 		wsLogSendError(conn, fmt.Sprintf("Failed to get log due to %v\n", err))
 		return

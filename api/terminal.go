@@ -3,6 +3,8 @@ package main
 import (
 	"io"
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -19,10 +21,10 @@ func TerminalHandler(c *gin.Context) {
 	// read container name from URL params
 	containerName := CFPrefix + c.Param("name")
 	// run bash in container and get the hijacked session
-	hijackedResp, err := v.ContainerAttachToTerminal(containerName)
+	ir, hijackedResp, err := v.ContainerAttachToTerminal(containerName)
 	if err != nil {
-		// TODO how to let front end know this error?
-		log.Println(err.Error())
+		log.Printf("%s: failed to attach to terminal: %v\n", containerName, err.Error())
+		conn.WriteMessage(websocket.TextMessage, []byte("internal error:"+err.Error()))
 		return
 	}
 
@@ -45,7 +47,7 @@ func TerminalHandler(c *gin.Context) {
 	//   --Error in wsReaderCopy - socket: close 1001 (going away)
 	//   --End of attach to terminal
 	//   --Deferred cleanup
-	wsReaderCopy(conn, hijackedResp.Conn)
+	wsReaderCopy(conn, hijackedResp.Conn, containerName, ir.ID)
 }
 
 // write terminal output to front end
@@ -65,14 +67,32 @@ func wsWriterCopy(writer *websocket.Conn, reader io.Reader) {
 	}
 }
 
-// send front end input to terminal
-func wsReaderCopy(reader *websocket.Conn, writer io.Writer) {
+// wsReaderCopy forwards front end input to the terminal.
+func wsReaderCopy(reader *websocket.Conn, writer io.Writer, containerName string, execID string) {
 	for {
 		messageType, p, err := reader.ReadMessage()
 		if err != nil {
 			return
 		}
 		if messageType == websocket.TextMessage {
+			if strings.HasPrefix(string(p), "$$MATRISEA_RESIZE") {
+				s := strings.Split(string(p), " ")
+				width, err := strconv.ParseUint(s[1], 10, 64)
+				if err != nil {
+					log.Printf("%s: failed to parse resize cmd: %s\n", containerName, string(p))
+					continue
+				}
+				height, err := strconv.ParseUint(s[2], 10, 64)
+				if err != nil {
+					log.Printf("%s: failed to parse resize cmd: %s\n", containerName, string(p))
+					continue
+				}
+
+				log.Printf("resize %s to %d, %d\n", containerName, width, height)
+				v.ContainerTerminalResize(execID, uint(width), uint(height))
+				continue
+			}
+			// Pass user input to the terminal
 			writer.Write(p)
 		}
 	}

@@ -62,9 +62,6 @@ const ImagePickerModal = ({ visible, onCancelCallback, target, fileList }) => {
                         <p className="ant-upload-text">Click or drag {target === "System" ? ".zip" : ".tar"} here to upload</p>
                     </Dragger>
                 </TabPane>
-                <TabPane tab="Pick from Android CI" key="3" disabled={true}>
-                    Content of Tab Pane 3
-                </TabPane>
             </Tabs>
         </Modal>
     );

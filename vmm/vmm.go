@@ -572,16 +572,16 @@ func (v *VMM) VMInstallAPK(containerName string, apkFile string) error {
 // ContainerAttachToTerminal starts a bash shell in the container and returns a bi-directional stream for the frontend to interact with.
 // It's up to the caller to close the hijacked connection by calling types.HijackedResponse.Close.
 // It's up to the caller to call KillTerminal() to kill the long running process at exit
-func (v *VMM) ContainerAttachToTerminal(containerName string) (hr types.HijackedResponse, err error) {
+func (v *VMM) ContainerAttachToTerminal(containerName string) (ir types.IDResponse, hr types.HijackedResponse, err error) {
 	if err := v.isManagedRunningContainer(containerName); err != nil {
-		return types.HijackedResponse{}, err
+		return types.IDResponse{}, types.HijackedResponse{}, err
 	}
 	log.Printf("ExecAttachToTerminal %s\n", containerName)
 	// TODO to do it properly, might need to get terminal dimensions from the front end
 	// and dynamically adjust docker's tty dimensions
 	// reference: https://github.com/xtermjs/xterm.js/issues/1359
 	cmd := []string{"/bin/bash"}
-	env := []string{"COLUMNS=205", "LINES=40"}
+	env := []string{"COLUMNS=`tput cols`", "LINES=`tput lines`"}
 	return v.ContainerAttachToProcess(containerName, cmd, env)
 }
 
@@ -603,9 +603,9 @@ func (v *VMM) ContainerAttachToTerminal(containerName string) (hr types.Hijacked
 //
 // ... which always create a new context.Background(). Apparantly Moby team didn't implement the `maybe` part that allows
 // context passing.
-func (v *VMM) ContainerAttachToProcess(containerName string, cmd []string, env []string) (hr types.HijackedResponse, err error) {
+func (v *VMM) ContainerAttachToProcess(containerName string, cmd []string, env []string) (ID types.IDResponse, hr types.HijackedResponse, err error) {
 	if err := v.isManagedRunningContainer(containerName); err != nil {
-		return types.HijackedResponse{}, err
+		return types.IDResponse{}, types.HijackedResponse{}, err
 	}
 	ctx := context.Background()
 	ir, err := v.Client.ContainerExecCreate(ctx, containerName, types.ExecConfig{
@@ -618,14 +618,14 @@ func (v *VMM) ContainerAttachToProcess(containerName string, cmd []string, env [
 		Env:          env,
 	})
 	if err != nil {
-		return types.HijackedResponse{}, errors.Wrap(err, "docker: failed to create an exec config")
+		return types.IDResponse{}, types.HijackedResponse{}, errors.Wrap(err, "docker: failed to create an exec config")
 	}
 
 	hijackedResp, err := v.Client.ContainerExecAttach(ctx, ir.ID, types.ExecStartCheck{Detach: false, Tty: true})
 	if err != nil {
-		return hijackedResp, errors.Wrap(err, "docker: failed to execute/attach to process")
+		return types.IDResponse{}, hijackedResp, errors.Wrap(err, "docker: failed to execute/attach to process")
 	}
-	return hijackedResp, nil
+	return ir, hijackedResp, nil
 }
 
 // ContainerKillTerminal kills the bash process after use. To be called after done with the process created by ExecAttachToTerminal().
@@ -668,6 +668,11 @@ func (v *VMM) ContainerKillProcess(containerName string, cmd string) error {
 		}
 	}
 	return nil
+}
+
+// ContainerTerminalResize resizes the TTY size of a given execID
+func (v *VMM) ContainerTerminalResize(execID string, height uint, width uint) error {
+	return v.Client.ContainerExecResize(context.Background(), execID, types.ResizeOptions{Height: height, Width: width})
 }
 
 // ContainerListFiles gets a list of files in the given container's path
@@ -1054,7 +1059,7 @@ func (v *VMM) getVMStatus(c types.Container) (VMStatus, error) {
 		case <-ctx.Done():
 			// The container's lock is held by others, probably busy doing other tasks
 			// The container is certainly running but we're not sure about launch_cvd
-			fmt.Printf("getVMStatus (%s): Timeout warning. Defaulting to VMReady\n", containerName)
+			log.Printf("getVMStatus (%s): Timeout warning. Defaulting to VMReady\n", containerName)
 			return VMReady, nil
 		case execResult := <-ch:
 			if execResult.err != nil {
