@@ -4,32 +4,41 @@ import { FitAddon } from 'xterm-addon-fit';
 import { AttachAddon } from 'xterm-addon-attach';
 
 function WebTerminal(props){
-    //call any method in XTerm.js by using 'xtermRef.current.terminal.abc
+    //Call any method in XTerm.js by using 'xtermRef.current.terminal.abc
     const xtermRef = useRef(null);
     const fitAddon = useMemo(() => new FitAddon(),[]);
     const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1";
+
+    // Calculate terminal column and line size and send it to the backend to adjust the tty size
+    const sendTerminalSize = useCallback((xtermCore, wsConn) => {
+        var width = xtermCore._renderService.dimensions.canvasWidth;
+        var height = xtermCore._renderService.dimensions.canvasHeight;
+        var charWidth = xtermCore._renderService.dimensions.actualCellWidth;
+        var charHeight = xtermCore._renderService.dimensions.actualCellHeight;
+        var cols = Math.floor(width/charWidth);
+        var lines = Math.floor(height/charHeight);
+        wsConn.send("$$MATRISEA_RESIZE " + cols +" " + lines + "");
+    }, []);
+
+    // Terminal's websocket connection
     const ws = useMemo(() => {
         console.log("new terminal conn"); 
         let newWS = new WebSocket(WS_ENDPOINT + "/vms/" + props.deviceName+ "/ws");
         newWS.onopen = () => {
             if (xtermRef.current && ws && ws.readyState === 1){
-                var width = xtermRef.current.terminalRef.current.offsetWidth;
-                var height = xtermRef.current.terminalRef.current.offsetHeight;
-                ws.send("$$MATRISEA_RESIZE " + width +" " + height + "");
+                sendTerminalSize(xtermRef.current.terminal._core, ws)
             }
         };
         return newWS;
-    }, [WS_ENDPOINT, props.deviceName]);
+    }, [WS_ENDPOINT, props.deviceName, sendTerminalSize]);
     const attachAddon = useMemo(() => new AttachAddon(ws),[ws]);
 
     const resizeCallback = useCallback(() => {
         if (!props.isHidden) {
-            if (xtermRef.current && ws && ws.readyState === 1){
-                var width = xtermRef.current.terminalRef.current.offsetWidth;
-                var height = xtermRef.current.terminalRef.current.offsetHeight;
-                ws.send("$$MATRISEA_RESIZE " + width +" " + height + "");
-            }
             fitAddon.fit()
+            if (xtermRef.current && ws && ws.readyState === 1){
+                sendTerminalSize(xtermRef.current.terminal._core, ws)
+            }
         }
     }, [fitAddon, props.isHidden, ws]);
 
@@ -37,6 +46,7 @@ function WebTerminal(props){
         if (!props.isHidden) {
             fitAddon.fit()
         }
+        // Update the backend with the latest terminal window size 
         window.addEventListener('resize', resizeCallback);
         return () => {
             window.removeEventListener('resize', resizeCallback);

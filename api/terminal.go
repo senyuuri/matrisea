@@ -77,19 +77,19 @@ func wsReaderCopy(reader *websocket.Conn, writer io.Writer, containerName string
 		if messageType == websocket.TextMessage {
 			if strings.HasPrefix(string(p), "$$MATRISEA_RESIZE") {
 				s := strings.Split(string(p), " ")
-				width, err := strconv.ParseUint(s[1], 10, 64)
+				cols, err := strconv.ParseUint(s[1], 10, 64)
 				if err != nil {
 					log.Printf("%s: failed to parse resize cmd: %s\n", containerName, string(p))
 					continue
 				}
-				height, err := strconv.ParseUint(s[2], 10, 64)
+				lines, err := strconv.ParseUint(s[2], 10, 64)
 				if err != nil {
 					log.Printf("%s: failed to parse resize cmd: %s\n", containerName, string(p))
 					continue
 				}
 
-				log.Printf("resize %s to %d, %d\n", containerName, width, height)
-				v.ContainerTerminalResize(execID, uint(width), uint(height))
+				log.Printf("resize %s to %d, %d\n", containerName, cols, lines)
+				v.ContainerTerminalResize(execID, uint(lines), uint(cols))
 				continue
 			}
 			// Pass user input to the terminal

@@ -671,8 +671,8 @@ func (v *VMM) ContainerKillProcess(containerName string, cmd string) error {
 }
 
 // ContainerTerminalResize resizes the TTY size of a given execID
-func (v *VMM) ContainerTerminalResize(execID string, height uint, width uint) error {
-	return v.Client.ContainerExecResize(context.Background(), execID, types.ResizeOptions{Height: height, Width: width})
+func (v *VMM) ContainerTerminalResize(execID string, lines uint, cols uint) error {
+	return v.Client.ContainerExecResize(context.Background(), execID, types.ResizeOptions{Height: lines, Width: cols})
 }
 
 // ContainerListFiles gets a list of files in the given container's path
