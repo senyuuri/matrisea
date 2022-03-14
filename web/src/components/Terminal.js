@@ -40,7 +40,7 @@ function WebTerminal(props){
                 sendTerminalSize(xtermRef.current.terminal._core, ws)
             }
         }
-    }, [fitAddon, props.isHidden, ws]);
+    }, [fitAddon, props.isHidden, ws, sendTerminalSize]);
 
     useEffect(() => {
         if (!props.isHidden) {

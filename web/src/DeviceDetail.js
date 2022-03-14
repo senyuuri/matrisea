@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback} from 'react';
 import { useParams, useHistory } from "react-router-dom";
 import { Menu, Breadcrumb, Row, Col, Button, PageHeader, Spin, Image, Badge, message } from 'antd';
-import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined, CloudUploadOutlined } from '@ant-design/icons';
+import { PoweroffOutlined, SettingOutlined, InteractionOutlined, BarsOutlined, CloudUploadOutlined, LaptopOutlined, FolderOpenOutlined} from '@ant-design/icons';
 import QueueAnim from 'rc-queue-anim';
 import { LazyLog, ScrollFollow } from 'react-lazylog';
 import axios from 'axios';
@@ -10,6 +10,7 @@ import WebTerminal from './components/Terminal';
 import VNCDisplay from './components/VNCDisplay';
 import ApkPickerModal from './components/ApkPickerModal';
 import FileExplorer from './components/FileExplorer';
+import Connection from './components/Connection';
 
 const { SubMenu } = Menu;
 const LOG_SIZE_LIMIT = 1024 * 100;
@@ -79,7 +80,6 @@ function DeviceDetail(){
         deviceDetail['cpu'] + " vCPU",
         deviceDetail['ram'] + " GB RAM",
         deviceDetail['ip'],
-        deviceDetail['status'],
         "Container ID " + deviceDetail['id'].slice(0,8)
       ];
       console.log('status', deviceDetail['status'])
@@ -195,20 +195,14 @@ function DeviceDetail(){
           </Col>
           <Col span={18}>
             <Menu mode="horizontal" onClick={handleMenuClick} selectedKeys={menuCurrent}>
-              <Menu.Item key="terminal" icon={<InteractionOutlined />}>
-                Terminal
-              </Menu.Item>
+              <Menu.Item key="terminal" icon={<InteractionOutlined />}> Terminal</Menu.Item>
               <SubMenu key="SubMenu" icon={<BarsOutlined />} title="Device Log">
                 <Menu.Item key="log:launcher">Launcher</Menu.Item>
                 <Menu.Item key="log:kernel">Kernel</Menu.Item>
-                <Menu.Item key="log:logcat" disabled={true}>ADB Logcat</Menu.Item>
               </SubMenu>
-              <Menu.Item key="files" icon={<SettingOutlined />}>
-                Files
-              </Menu.Item>
-              <Menu.Item key="settings" icon={<SettingOutlined />}>
-                Settings
-              </Menu.Item>
+              <Menu.Item key="files" icon={<FolderOpenOutlined />}> Files </Menu.Item>
+              <Menu.Item key="connection" icon={<LaptopOutlined />}> Connection </Menu.Item>
+              <Menu.Item key="settings" icon={<SettingOutlined />}> Settings </Menu.Item>
             </Menu>
             <div id="menu-content-terminal" style={{display: menuCurrent==="terminal" ? 'block' : 'none'}}>
               <WebTerminal deviceName={device_name} isHidden={menuCurrent==="terminal" ? false : true}/>
@@ -223,12 +217,15 @@ function DeviceDetail(){
                 )}
               />
             </div>
-            <div id="menu-content-settings" style={{display: menuCurrent==="settings" ? 'block' : 'none'}}>
-              <p>Nothing to setup</p>
-            </div>
-            <div id="menu-content-settings" style={{display: menuCurrent==="files" ? 'block' : 'none'}}>
-              <FileExplorer deviceName={device_name}/>
-            </div>
+						{menuCurrent==="files" ? <FileExplorer deviceName={device_name}/> : '' }
+						{menuCurrent==="connection" ? 
+							<Connection
+								cf_instance={cf_instance}
+								deviceDetail={deviceDetail}
+							/> 
+							: '' 
+						}
+						{menuCurrent==="settings" ? <p>Nothing to setup</p> : '' }
           </Col>
         </Row>
       </QueueAnim>

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -150,6 +152,7 @@ func main() {
 		v1.GET("/files/system", getSystemImageList)
 		v1.GET("/files/cvd", getCVDImageList)
 		v1.POST("/files/upload", uploadImageFile)
+		v1.GET("/ips", getConnectionIPs)
 	}
 	router.Run()
 }
@@ -581,6 +584,72 @@ func downloadWorkspaceFile(c *gin.Context) {
 		"Content-Disposition": fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(p)),
 	}
 	c.DataFromReader(http.StatusOK, header.Size, "application/octet-stream", tr, extraHeaders)
+}
+
+func getConnectionIPs(c *gin.Context) {
+	lanIPs := []string{}
+
+	NonLanPrefixes := []string{"lo", "virbr", "docker", "veth", "cvd", "tailscale"}
+	iters, err := net.Interfaces()
+	if err != nil {
+		log.Println(err.Error())
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	for _, i := range iters {
+		cont := true
+		for _, prefix := range NonLanPrefixes {
+			if strings.HasPrefix(i.Name, prefix) {
+				cont = false
+			}
+		}
+		if !cont {
+			continue
+		}
+
+		addrs, err := i.Addrs()
+		if err != nil {
+			log.Println(err.Error())
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		for _, addr := range addrs {
+			ip, _, err := net.ParseCIDR(addr.String())
+			if err != nil {
+				log.Println(err.Error())
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			if ip.To4() != nil && ip.IsPrivate() {
+				lanIPs = append(lanIPs, ip.String())
+			}
+		}
+	}
+	tsInstalled := true
+	cmd := exec.Command("which", "tailscale")
+	if _, err := cmd.Output(); err != nil {
+		tsInstalled = false
+	}
+	if tsInstalled {
+		cmd = exec.Command("tailscale", "ip")
+		output, err := cmd.Output()
+		if err != nil {
+			log.Println(err.Error())
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		tsIP := strings.Split(string(output), "\n")[0]
+		c.JSON(200, gin.H{
+			"lan_ips":      lanIPs,
+			"tailscale_ip": tsIP,
+		})
+		return
+	}
+	c.JSON(200, gin.H{
+		"lan_ips":      lanIPs,
+		"tailscale_ip": "",
+	})
 }
 
 func getenv(key, fallback string) string {

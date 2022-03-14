@@ -98,3 +98,37 @@
 .file-explorer a {
   padding: 4px 0;
 }
+
+#menu-content-connection {
+  height: 90%;
+  background-color: #f0f0f0;
+}
+
+#menu-content-connection .ant-ribbon-wrapper {
+  height: 100%
+}
+
+#menu-content-connection .ant-card-body {
+  height: 100%;
+}
+
+#menu-content-connection .ant-card {
+
+  margin: 7px;
+}
+
+#menu-content-connection ul{
+  padding: 15px;
+}
+
+#menu-content-connection ol{
+  padding: 15px;
+}
+
+.connection-row {
+  margin-bottom: 1em;
+}
+
+.connection-row p{
+  color: grey;
+}

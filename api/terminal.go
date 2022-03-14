@@ -88,7 +88,7 @@ func wsReaderCopy(reader *websocket.Conn, writer io.Writer, containerName string
 					continue
 				}
 
-				log.Printf("resize %s to %d, %d\n", containerName, cols, lines)
+				// log.Printf("resize %s to %d, %d\n", containerName, cols, lines)
 				v.ContainerTerminalResize(execID, uint(lines), uint(cols))
 				continue
 			}
