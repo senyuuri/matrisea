@@ -184,6 +184,10 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 	if err != nil {
 		return "", err
 	}
+	adbPort, err := nat.NewPort("tcp", strconv.Itoa(6520+cfInstance-1))
+	if err != nil {
+		return "", err
+	}
 
 	containerConfig := &container.Config{
 		Image:    CFImage,
@@ -203,6 +207,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		},
 		ExposedPorts: nat.PortSet{
 			websockifyPort: struct{}{},
+			adbPort:        struct{}{},
 		},
 	}
 
@@ -224,10 +229,15 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 		},
 		PortBindings: nat.PortMap{
 			websockifyPort: []nat.PortBinding{
-				{
-					// Expose websockify port
+				{ // Expose websockify port so novnc clients can connect directly
 					HostIP:   "0.0.0.0",
 					HostPort: strconv.Itoa(6080 + cfInstance - 1),
+				},
+			},
+			adbPort: []nat.PortBinding{
+				{ // Expose adb port only to localhost
+					HostIP:   "127.0.0.1",
+					HostPort: strconv.Itoa(6520 + cfInstance - 1),
 				},
 			},
 		},
@@ -1033,7 +1043,7 @@ type ExecChannelResult struct {
 // Due to the concurrency design of the underlying Moby API, if a given container is locked (busy with other requests),
 // the returned VMStatus might not accurately reflect the actual status of launch_cvd.
 func (v *VMM) getVMStatus(c types.Container) (VMStatus, error) {
-	// Create a context that will be canceled in 300ms
+	// Create a context that will be canceled in 500ms
 	//
 	// Many Moby APIs acquires a per-container lock during execution. For example, in Daemon.containerCopy (used by VMM.containerCopyFile):
 	// https://github.com/moby/moby/blob/eb9e42a09ee123af1d95bf7d46dd738258fa2109/daemon/archive.go#L390
@@ -1042,7 +1052,7 @@ func (v *VMM) getVMStatus(c types.Container) (VMStatus, error) {
 	// blocked the most because it's used by VMList, one of the hottest code path that gets called by every client
 	// every 5 seconds. Hence, to avoid waiting for a container's lock indefinitely, we only try query a container's
 	// process list (`ps aux`) for a limited amount of time
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	containerName := c.Names[0][1:]
