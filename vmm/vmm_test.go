@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/docker/docker/api/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,7 +39,7 @@ func setup() {
 	}
 
 	v = NewMockVMM(dataDir, testBatch)
-	containerName, err = v.VMCreate("01", 2, 4, "Android 12")
+	containerName, err = v.VMCreate("01", 2, 4, "Android 12", "")
 	if err != nil {
 		log.Printf("VMCreate failed. reason: %v\n", err)
 		if err := v.VMRemove(containerName); err != nil {
@@ -156,7 +157,7 @@ func TestContainerListFilesNonExistFolder(t *testing.T) {
 }
 
 func TestContainerAttachToProcessThenKill(t *testing.T) {
-	hijackedResp, err := v.ContainerAttachToProcess(containerName, []string{"top"}, []string{})
+	_, hijackedResp, err := v.ContainerAttachToProcess(containerName, []string{"top"}, []string{})
 	assert.Nil(t, err)
 	defer func() {
 		hijackedResp.Conn.Write([]byte("exit\r"))
@@ -192,7 +193,16 @@ func TestVMMIntegration(t *testing.T) {
 	cmd := exec.Command("bash", "-c", fmt.Sprintf("docker exec %s ps aux | grep -q [w]ebsockify", cid))
 	assert.Nil(t, cmd.Run())
 
-	status, _ := v.getVMStatus(containerName)
+	clist, err := v.listCuttlefishContainers()
+	assert.Nil(t, err)
+	var container types.Container
+	for _, c := range clist {
+		if cid == c.ID {
+			container = c
+		}
+	}
+	assert.NotNil(t, container)
+	status, _ := v.getVMStatus(container)
 	assert.Equal(t, VMReady, status)
 
 	// Download the latest system and cvd images
@@ -237,7 +247,7 @@ func TestVMMIntegration(t *testing.T) {
 	})
 	assert.Nil(t, err)
 
-	status, _ = v.getVMStatus(containerName)
+	status, _ = v.getVMStatus(container)
 	assert.Equal(t, VMRunning, status)
 
 	err = v.VMStop(containerName)

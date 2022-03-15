@@ -213,6 +213,7 @@ function NewVMForm(props) {
         </div>
 			}
 		>
+
       <Steps current={currentStep-1} size="small">
         <Step title="Configure" />
         <Step key="Initialize Device" title="Initialize Device" />
@@ -263,97 +264,72 @@ function NewVMForm(props) {
               type: "cuttlefish-kvm",
               cpu: 2,
               ram: 4,
-              aosp_version: "Android 12"
+              aosp_version: "Android 12",
+              cmdline: "--guest_audit_security=false --guest_enforce_security=false"
             }}
           >
             <Row gutter={16}>
               <Col span={12}>
-              <Form.Item
-                name="name"
-                label="Device Name"
-                rules={[{ required: true, message: 'Please enter a device name' }]}
-              >
-                <Input placeholder="Virtual device name" />
-              </Form.Item>
+                <Form.Item name="name" label="Device Name" rules={[{ required: true, message: 'Please enter a device name' }]}>
+                  <Input placeholder="Virtual device name" />
+                </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item
-                  name="type"
-                  label="Device Type"
-                  rules={[{ required: true, message: 'Please choose the device type' }]}
-                >
+                <Form.Item  name="type" label="Device Type" rules={[{ required: true, message: 'Please choose the device type' }]}>
                   <Select placeholder="Please choose the type" disabled={true}>
                     <Option key="cuttlefish-kvm" value="cuttlefish-kvm">cuttlefish-kvm</Option>
                   </Select>
                 </Form.Item>
               </Col>
             </Row>
+
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item
-                  name="cpu"
-                  label="CPU"
-                  rules={[{ required: true, message: 'Please choose the CPU' }]}
-                >
+                <Form.Item name="cpu" label="CPU" rules={[{ required: true, message: 'Please choose the CPU' }]}>
                   <Select placeholder="Please choose the CPU">
                     {new Array(4).fill(null).map((_, index) => {
                       const key = index + 1;
                       return <Option key={key} value={key}> {key} vCPU</Option>
                       
                     })}
-                    
                   </Select>
                 </Form.Item>
               </Col>
               <Col span={12}>
-              <Form.Item
-                name="ram"
-                label="RAM"
-                rules={[{ required: true, message: 'Please enter the size of RAM' }]}
-              >
+              <Form.Item name="ram" label="RAM" rules={[{ required: true, message: 'Please enter the size of RAM' }]}>
                 <Select placeholder="Please choose the size of RAM">
                   {new Array(7).fill(null).map((_, index) => {
                     const key = index + 2;
                     return <Option key={key} value={key}> {key} GB</Option>
                     
                   })}
-                  
                 </Select>
               </Form.Item>
               </Col>
             </Row>
+
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item
-                  label="System Image"
-                >
-                  <Form.Item 
-                    noStyle
-                    name="system_image"
-                    rules={[{ required: true, message: 'Please upload/choose a system image' }]}
-                  >
+                <Form.Item label="System Image">
+                  <Form.Item noStyle name="system_image" rules={[{ required: true, message: 'Please upload/choose a system image' }]}>
                     <Input hidden/>
                   </Form.Item>
                   <Form.Item noStyle>
-                  <Button
-                    className={hasChosenSystemImage ? "file-btn-chosen" :""}
-                    type={hasChosenSystemImage ? "" : "dashed"}
-                    onClick={chooseSystemFile}
-                    style={{ width: '100%'}}
-                    icon={ hasChosenSystemImage ? <CheckOutlined/> : <PlusOutlined />}
-                  >
-                    {systemImageButtonText}
-                  </Button>
+                    <Button
+                      className={hasChosenSystemImage ? "file-btn-chosen" :""}
+                      type={hasChosenSystemImage ? "" : "dashed"}
+                      onClick={chooseSystemFile}
+                      style={{ width: '100%'}}
+                      icon={ hasChosenSystemImage ? <CheckOutlined/> : <PlusOutlined />}
+                    >
+                      {systemImageButtonText}
+                    </Button>
                   </Form.Item>
                 </Form.Item>
               </Col>
               <Col span={12}>
                 <Form.Item label="CVD Image">
-                  <Form.Item
-                    noStyle
-                    name="cvd_image"
-                    rules={[{ required: true, message: 'Please upload/choose a CVD image' }]}
-                  >
+                  <Form.Item noStyle name="cvd_image" rules={[{ required: true, message: 'Please upload/choose a CVD image' }]}>
                     <Input hidden/>
                   </Form.Item>
                   <Form.Item noStyle>
@@ -370,18 +346,23 @@ function NewVMForm(props) {
                 </Form.Item>
               </Col>
             </Row>
+
             <Row>
               <Col span={12}>
-                <Form.Item
-                  name="aosp_version"
-                  label="Android Version"
-                  rules={[{ required: true, message: 'Please select the OS version' }]}
-                >
+                <Form.Item name="aosp_version" label="Android Version" rules={[{ required: true, message: 'Please select the OS version' }]}>
                   <Select placeholder="Please select the OS version">
                     <Option key="android-10" value="Android 10">Android 10</Option>
                     <Option key="android-11" value="Android 11">Android 11</Option>
                     <Option key="android-12" value="Android 12">Android 12</Option>
                   </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row>
+              <Col span={24}>
+                <Form.Item name="cmdline" label="Launcher Command-line" >
+                  <Input.TextArea spellcheck="false" style={{fontFamily: "Courier New"}}/>
                 </Form.Item>
               </Col>
             </Row>
@@ -421,7 +402,7 @@ function NewVMForm(props) {
       <div id='step-3-div' style={{display: currentStep===3 ? 'block' : 'none'}}>
         <p>Success!</p>
       </div>
-      
+
 		</Drawer>
 	)
 }

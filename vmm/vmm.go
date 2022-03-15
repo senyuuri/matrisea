@@ -152,7 +152,7 @@ func NewVMMImpl(dataDir string, cfPrefix string, bootTimeout time.Duration) *VMM
 }
 
 // VMCreate creates a new container and sets up the corresponding folders in DevicesDir.
-func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) (string, error) {
+func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string, cmdline string) (string, error) {
 	ctx := context.Background()
 	containerName := v.CFPrefix + deviceName
 
@@ -201,6 +201,7 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string) 
 			"matrisea_ram":              strconv.Itoa(ram),
 			"matrisea_aosp_version":     aospVersion,
 			"matrisea_tag_aosp_version": aospVersion, // Tags are for display only
+			"matrisea_cmdline":          cmdline,
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -305,7 +306,7 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 	if err != nil {
 		return errors.Wrap(err, "read matrisea_ram label")
 	}
-
+	cmdline := strings.Split(labels["matrisea_cmdline"], " ")
 	aospVersion, err := v.VMGetAOSPVersion(containerName)
 	if err != nil {
 		return errors.Wrap(err, "read AOSP version label")
@@ -323,9 +324,8 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2),
 		fmt.Sprintf("--cpus=%s", labels["matrisea_cpu"]),
 		fmt.Sprintf("--memory_mb=%d", memory_gb*1024),
-		"--guest_audit_security=false",
-		"--guest_enforce_security=false",
 	}
+	launch_cmd = append(launch_cmd, cmdline...)
 
 	if aospVersion == "Android 12" {
 		launch_cmd = append(launch_cmd, "--report_anonymous_usage_stats=y")
