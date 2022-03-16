@@ -335,27 +335,13 @@ func wsCreateVM(c *Connection, req CreateVMRequest) {
 	wsCreateVMCompleteStep(c, STEP_CREATE_VM)
 
 	// 4 - STEP_LOAD_IMAGES
-
 	// ** Time and space considerations on image loading **
-	//
 	// Before launching cuttlefish, we need to unzip system images (~13GB) then copy them to /home/vsoc-01 in the container.
 	// Since docker API mandatorily tars everything before the copy, if we simply unzip the images and copy each file over,
 	// the overhead can be huge (13GB unzip + 13GB tar + 13GB untar).
 	//
 	// The current solution copies the zip into the container first, then unzip it within the container, so we at least could
 	// save lots of time in docker copy (1GB tar + 1GB untar + 13GB unzip).
-	//
-	// ** Why we dropped OverlayFS support **
-	//
-	// As of the current implementation, devices that use the same image have to keep duplicated copies. A more idealised
-	// solution would be to implement some sort of OverlayFS-like mechanism to achieve image reuse. For that to work, we need a
-	// base(lower) read-only directory for images, and a writable layer(upper) for the runtime data. Unfortunatly, the kernel had
-	// dropped overlay-on-overlay support due to its hard-to-maintain complexities. And because Docker defaults to overlay2 as its
-	// storage driver, asking user to change their global storage driver sorely for Matrisea could affect the compatibility of users'
-	// already running workloads. Hence, the OverlayFS idea was dropped.
-	//
-	// The revoked OverlayFS implementation can be found in commit f77a448e309c3c1f0260d1fec74519c79564e182.
-	//
 
 	// Load system image (.zip) and unzip in the container
 	wsCreateVMLog(c, "Loading system image "+req.SystemImage+"...")
