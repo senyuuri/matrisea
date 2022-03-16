@@ -5,6 +5,7 @@ data
 # go misc
 vmm/vmm
 api/api
+tools/tools
 *coverage.out
 *coverage.html
 *__debug_bin
