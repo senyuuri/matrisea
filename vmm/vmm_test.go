@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +33,8 @@ func TestMain(m *testing.M) {
 
 // Pre-test setup which also invokes NewVMM, VMCreate
 func setup() {
+	rand.Seed(time.Now().UnixNano())
+
 	testBatch := "matrisea-test-" + randSeq(6) + "-"
 	var err error
 	dataDir, err = ioutil.TempDir("", testBatch)
@@ -53,8 +57,10 @@ func setup() {
 func cleanup() {
 	err := v.VMRemove(containerName)
 	if err != nil {
+
 		log.Fatalf("RemoveVM failed. reason: %v\n", err)
 	}
+	v.Close()
 	os.RemoveAll(dataDir)
 
 	cmd := fmt.Sprintf("docker ps | grep -q %s", containerName)

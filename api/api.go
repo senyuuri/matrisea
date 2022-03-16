@@ -156,6 +156,7 @@ func main() {
 		v1.GET("/ips", getConnectionIPs)
 	}
 	router.Run()
+	defer v.Close()
 }
 
 // Open a shared WS connection for features that require either

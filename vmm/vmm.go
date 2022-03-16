@@ -69,6 +69,7 @@ type VMM struct {
 	createMu    sync.Mutex    // Ensures only one CreateVM() call at a time
 	CFPrefix    string        // Container name prefix
 	BootTimeout time.Duration // Maximum waiting time for VMStart
+	KVStore     *KVStore
 }
 
 type VMItem struct {
@@ -96,6 +97,16 @@ const (
 	// which shouldn't happen if the container is fully managed by Matrisea.
 	// Require admin intervention to remove/resume using Docker CLI
 	VMContainerError VMStatus = iota
+)
+
+// Keys of per-container configs in KVStorage
+const (
+	CONFIG_KEY_DEVICE_NAME  = "device_name"
+	CONFIG_KEY_CPU          = "cpu"
+	CONFIG_KEY_RAM          = "ram"
+	CONFIG_KEY_AOSP_VERSION = "aosp_version"
+	CONFIG_KEY_TAGS         = "tags"
+	CONFIG_KEY_CMDLINE      = "cmdline"
 )
 
 // ExecResult represents a result returned from Exec()
@@ -147,8 +158,17 @@ func NewVMMImpl(dataDir string, cfPrefix string, bootTimeout time.Duration) *VMM
 		UploadDir:   uploadDir,
 		CFPrefix:    cfPrefix,
 		BootTimeout: bootTimeout,
+		KVStore:     NewKVStore(dataDir),
 	}
 	return v
+}
+
+// Close cleans up various resources used
+func (v *VMM) Close() {
+	err := v.KVStore.Close()
+	if err != nil {
+		log.Printf("Failed to close KVStorage. Reason: %v", err)
+	}
 }
 
 // VMCreate creates a new container and sets up the corresponding folders in DevicesDir.
@@ -193,15 +213,9 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string, 
 		Image:    CFImage,
 		Hostname: containerName,
 		Labels: map[string]string{
-			"cf_instance":               strconv.Itoa(cfInstance), //Used by android-cuttlefish CLI
-			"n_cf_instances":            "1",                      //Used by android-cuttlefish CLI
-			"vsock_guest_cid":           "true",                   //Used by android-cuttlefish CLI
-			"matrisea_device_name":      deviceName,
-			"matrisea_cpu":              strconv.Itoa(cpu),
-			"matrisea_ram":              strconv.Itoa(ram),
-			"matrisea_aosp_version":     aospVersion,
-			"matrisea_tag_aosp_version": aospVersion, // Tags are for display only
-			"matrisea_cmdline":          cmdline,
+			"cf_instance":     strconv.Itoa(cfInstance), //Used by android-cuttlefish CLI
+			"n_cf_instances":  "1",                      //Used by android-cuttlefish CLI
+			"vsock_guest_cid": "true",                   //Used by android-cuttlefish CLI
 		},
 		Env: []string{
 			"HOME=" + HomeDir,
@@ -255,12 +269,26 @@ func (v *VMM) VMCreate(deviceName string, cpu int, ram int, aospVersion string, 
 	if err != nil {
 		return "", errors.Wrap(err, "ContainerCreate")
 	}
+
 	if err := v.Client.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return "", errors.Wrap(err, "ContainerStart")
 	}
 
 	log.Printf("Created VM %s %s cf_instance/%d\n", containerName, resp.ID, cfInstance)
 
+	// Save configs to local storage
+	kvs := []KeyValue{
+		{CONFIG_KEY_DEVICE_NAME, deviceName},
+		{CONFIG_KEY_CPU, strconv.Itoa(cpu)},
+		{CONFIG_KEY_RAM, strconv.Itoa(ram)},
+		{CONFIG_KEY_AOSP_VERSION, aospVersion},
+		{CONFIG_KEY_TAGS, aospVersion},
+		{CONFIG_KEY_CMDLINE, cmdline},
+	}
+	err = v.KVStore.PutContainterValue(containerName, kvs)
+	if err != nil {
+		return "", errors.Wrap(err, "KVStore put")
+	}
 	return containerName, nil
 }
 
@@ -298,18 +326,25 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 	if err != nil {
 		return errors.Wrap(err, "getContainerCFInstanceNumber")
 	}
-	labels, err := v.getContainerLabels(containerName)
+	ram, err := v.KVStore.GetContainerValue(containerName, CONFIG_KEY_RAM)
 	if err != nil {
-		return errors.Wrap(err, "getContainerLabels")
+		return errors.Wrap(err, "read config ram")
 	}
-	memory_gb, err := strconv.Atoi(labels["matrisea_ram"])
+	ram_gb, err := strconv.Atoi(ram)
 	if err != nil {
-		return errors.Wrap(err, "read matrisea_ram label")
+		return errors.Wrap(err, "read config ram")
 	}
-	cmdline := strings.Split(labels["matrisea_cmdline"], " ")
-	aospVersion, err := v.VMGetAOSPVersion(containerName)
+	cpu, err := v.KVStore.GetContainerValue(containerName, CONFIG_KEY_CPU)
 	if err != nil {
-		return errors.Wrap(err, "read AOSP version label")
+		return errors.Wrap(err, "read config cpu")
+	}
+	aospVersion, err := v.KVStore.GetContainerValue(containerName, CONFIG_KEY_AOSP_VERSION)
+	if err != nil {
+		return errors.Wrap(err, "read aosp_version config")
+	}
+	cmdline, err := v.KVStore.GetContainerValue(containerName, CONFIG_KEY_CMDLINE)
+	if err != nil {
+		return errors.Wrap(err, "read cmdline config")
 	}
 	// To show the files that define the flags, run `./bin/launch_cvd --help`
 	//
@@ -322,10 +357,10 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 		"--nostart_webrtc",
 		"--start_vnc_server",
 		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2),
-		fmt.Sprintf("--cpus=%s", labels["matrisea_cpu"]),
-		fmt.Sprintf("--memory_mb=%d", memory_gb*1024),
+		fmt.Sprintf("--cpus=%s", cpu),
+		fmt.Sprintf("--memory_mb=%d", ram_gb*1024),
 	}
-	launch_cmd = append(launch_cmd, cmdline...)
+	launch_cmd = append(launch_cmd, cmdline)
 
 	if aospVersion == "Android 12" {
 		launch_cmd = append(launch_cmd, "--report_anonymous_usage_stats=y")
@@ -476,6 +511,10 @@ func (v *VMM) VMRemove(containerName string) error {
 	if err != nil {
 		return errors.Wrap(err, "docker: ContainerRemove")
 	}
+	err = v.KVStore.RemoveContainerConfigs(containerName)
+	if err != nil {
+		return errors.Wrap(err, "kvstore: ContainerRemove")
+	}
 	err = os.RemoveAll(path.Join(v.DevicesDir, containerName))
 	if err != nil {
 		return err
@@ -505,33 +544,26 @@ func (v *VMM) VMList() ([]VMItem, error) {
 	resp := []VMItem{}
 	for _, c := range cfList {
 		status, err := v.getVMStatus(c)
+		containerName := c.Names[0][1:]
 		if err != nil {
 			return nil, errors.Wrap(err, "getVMStatus")
 		}
-		cpu, err := strconv.Atoi(c.Labels["matrisea_cpu"])
-		if err != nil {
-			cpu = 0
-		}
-		ram, err := strconv.Atoi(c.Labels["matrisea_ram"])
-		if err != nil {
-			ram = 0
-		}
-		tags := []string{}
-		for key, element := range c.Labels {
-			if strings.HasPrefix(key, "matrisea_tag_") {
-				tags = append(tags, element)
-			}
-		}
+
+		cpuStr := v.KVStore.GetContainerValueOrEmpty(containerName, CONFIG_KEY_CPU)
+		cpu, _ := strconv.Atoi(cpuStr)
+		ramStr := v.KVStore.GetContainerValueOrEmpty(containerName, CONFIG_KEY_RAM)
+		ram, _ := strconv.Atoi(ramStr)
+		tagsStr := v.KVStore.GetContainerValueOrEmpty(containerName, CONFIG_KEY_TAGS)
+		tags := strings.Split(tagsStr, ",")
 
 		resp = append(resp, VMItem{
 			ID:         c.ID,
-			Name:       c.Labels["matrisea_device_name"],
+			Name:       v.KVStore.GetContainerValueOrEmpty(containerName, CONFIG_KEY_DEVICE_NAME),
 			Created:    strconv.FormatInt(c.Created, 10),
-			Device:     c.Labels["matrisea_device_template"],
 			IP:         c.NetworkSettings.Networks[DefaultNetwork].IPAddress,
 			Status:     status,
 			CFInstance: c.Labels["cf_instance"],
-			OSVersion:  c.Labels["matrisea_aosp_version"],
+			OSVersion:  v.KVStore.GetContainerValueOrEmpty(containerName, CONFIG_KEY_AOSP_VERSION),
 			CPU:        cpu,
 			RAM:        ram,
 			Tags:       tags,
@@ -540,16 +572,9 @@ func (v *VMM) VMList() ([]VMItem, error) {
 	return resp, nil
 }
 
-// VMGetAOSPVersion reads the "matrisea_aosp_version" label of a container.
+// VMGetAOSPVersion reads the "aosp_version" key of a container config.
 func (v *VMM) VMGetAOSPVersion(containerName string) (string, error) {
-	if err := v.isManagedRunningContainer(containerName); err != nil {
-		return "", err
-	}
-	containerJSON, err := v.getContainerJSON(containerName)
-	if err != nil {
-		return "", err
-	}
-	return containerJSON.Config.Labels["matrisea_aosp_version"], nil
+	return v.KVStore.GetContainerValue(containerName, CONFIG_KEY_AOSP_VERSION)
 }
 
 // VMInstallAPK attempts to start an ADB daemon in the container and installs an apkFile on the VM.
@@ -798,14 +823,6 @@ func (v *VMM) getContainerIP(containerName string) (string, error) {
 		return "", err
 	}
 	return containerJSON.NetworkSettings.IPAddress, nil
-}
-
-func (v *VMM) getContainerLabels(containerName string) (map[string]string, error) {
-	containerJSON, err := v.getContainerJSON(containerName)
-	if err != nil {
-		return nil, err
-	}
-	return containerJSON.Config.Labels, nil
 }
 
 func (v *VMM) getContainerJSON(containerName string) (types.ContainerJSON, error) {
