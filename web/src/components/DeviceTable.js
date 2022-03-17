@@ -32,7 +32,10 @@ function DeviceTable(props) {
         render: tags => (
           <>
             {tags.map(tag => {
-              let color = 'gold';
+              let color = '';
+              if (tag === 'Android 9') {
+                color = 'gold'
+              }
               if (tag === 'Android 10') {
                 color = 'cyan';
               }

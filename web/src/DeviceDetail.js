@@ -11,6 +11,7 @@ import VNCDisplay from './components/VNCDisplay';
 import ApkPickerModal from './components/ApkPickerModal';
 import FileExplorer from './components/FileExplorer';
 import Connection from './components/Connection';
+import Settings from './components/Settings';
 
 const { SubMenu } = Menu;
 const LOG_SIZE_LIMIT = 1024 * 100;
@@ -183,7 +184,7 @@ function DeviceDetail(){
           </Breadcrumb>
         </Row>
         <MyPageHeader/>
-        <Row gutter={16}  key="3" id="detail-flex-content">
+        <Row gutter={{ xs: 8, sm: 16, md: 24, lg: 32 }} key="3" id="detail-flex-content">
           <Col span={6}>
             { deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 1 ?
               <VNCDisplay url={VNC_WS_URL}/>
@@ -204,16 +205,14 @@ function DeviceDetail(){
               <Menu.Item key="connection" icon={<LaptopOutlined />}> Connection </Menu.Item>
               <Menu.Item key="settings" icon={<SettingOutlined />}> Settings </Menu.Item>
             </Menu>
-            <div id="menu-content-terminal" style={{display: menuCurrent==="terminal" ? 'block' : 'none'}}>
-              <WebTerminal deviceName={device_name} isHidden={menuCurrent==="terminal" ? false : true}/>
-            </div>
+            <WebTerminal deviceName={device_name} isHidden={menuCurrent==="terminal" ? false : true}/>
             <div id="menu-content-log" style={{display: menuCurrent.startsWith("log") ? 'block' : 'none', height: "100%"}}>
               {/* // TODO ScrollFollow is not working probably known bug pending PR merge
                   // https://github.com/mozilla-frontend-infra/react-lazylog/pull/41/files */}
               <ScrollFollow
                 startFollowing={true}
                 render={({ follow, onScroll }) => (
-                  <LazyLog height={700} text={log} enableSearch stream follow={follow} onScroll={onScroll} />
+                  <LazyLog text={log} enableSearch stream follow={follow} onScroll={onScroll} />
                 )}
               />
             </div>
@@ -225,7 +224,7 @@ function DeviceDetail(){
 							/> 
 							: '' 
 						}
-						{menuCurrent==="settings" ? <p>Nothing to setup</p> : '' }
+						{menuCurrent==="settings" ? <Settings/> : '' }
           </Col>
         </Row>
       </QueueAnim>

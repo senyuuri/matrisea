@@ -98,19 +98,18 @@ function FileExplorer({deviceName}) {
     getFiles();
   }, [getFiles])
 
-  return (<div>
-    <Input value={dir} prefix={<FolderOpenOutlined />} disabled={true}/>
-    <Table 
-      className="file-explorer"
-      style={{ paddingTop: '10px' }} 
-      columns={columns} 
-      dataSource={tableData} 
-      pagination={false} 
-      scroll={{ y: 640 }}
-    //   loading={props.isLoading}
-    />
-  </div>
-    
+  return (
+    <div className="detail-tab-content">
+      <Input value={dir} prefix={<FolderOpenOutlined />} disabled={true}/>
+      <Table 
+        className="file-explorer"
+        columns={columns} 
+        dataSource={tableData} 
+        pagination={false} 
+        scroll={{ y: "60vh" }}
+      //   loading={props.isLoading}
+      />
+    </div>
   )
 }
 

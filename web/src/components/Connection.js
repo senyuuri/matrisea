@@ -35,7 +35,7 @@ function Connection(props){
   }, [getConnectionIPs])
 
 	return (
-		<div id="menu-content-connection">
+		<div id="menu-content-connection" className="detail-tab-content">
 			<Row>
 				<Card title={<div> <CloudOutlined /> Select Connection Mode</div>}  bordered={false} style={{width: "100%"}}>
 				  <Text strong>Direct: </Text><Text>Connect from the same subnet of the server (e.g. for self-hosted Matrisea)</Text><br/>
@@ -99,7 +99,7 @@ function Connection(props){
                 <ol>
                   <li>Download and Install Tailscale client (https://tailscale.com/download/)</li>
                   <li>Connect to the control server</li>
-                  <TextArea spellcheck="false" autoSize={true} value="tailscale up --login-server https://aaaaaaa.com/tailscale --authkey a8ce88557831d6267acfeb70a7ff685f"/>
+                  <TextArea spellCheck="false" autoSize={true} value="tailscale up --login-server https://aaaaaaa.com/tailscale --authkey a8ce88557831d6267acfeb70a7ff685f"/>
                   <li>You will need a valid local account on the remote server that allows you to do SSH port forwarding</li>
                 </ol>
               </Card>

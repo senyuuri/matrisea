@@ -44,6 +44,7 @@ function WebTerminal(props){
 
     useEffect(() => {
         if (!props.isHidden) {
+            console.log("fit")
             fitAddon.fit()
         }
         // Update the backend with the latest terminal window size 
@@ -56,11 +57,17 @@ function WebTerminal(props){
     const opts = {
         screenKeys: true,
         cursorBlink: false,
-        scrollback: 9999999, // unlimited
+        scrollback: 9999999,
+        fontFamily: "Monaco, monospace",
+        fontSize: 13,
+        // theme: {
+        //     background: "#343434"
+        // }
     };
 
     return (
         <XTerm 
+            className={`xterm-main ${props.isHidden ? "xterm-main-hidden" : ""}`}
             options={opts}
             ref={xtermRef}
             addons={[fitAddon, attachAddon]}

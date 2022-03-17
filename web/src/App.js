@@ -8,7 +8,7 @@ import DeviceDetail from './DeviceDetail';
 
 import './App.css';
 
-const { Header, Content } = Layout;
+const { Header, Content, Footer } = Layout;
 const WS_ENDPOINT = "ws://"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1/ws"
 
 function App() {
@@ -54,6 +54,7 @@ function App() {
         </Switch>
       </Content>
     </WsContext.Provider>
+    <Footer/>
   </Layout>)
 }
 
