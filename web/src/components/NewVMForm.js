@@ -351,6 +351,7 @@ function NewVMForm(props) {
               <Col span={12}>
                 <Form.Item name="aosp_version" label="Android Version" rules={[{ required: true, message: 'Please select the OS version' }]}>
                   <Select placeholder="Please select the OS version">
+                    <Option key="android-9" value="Android 9">Android 9</Option>
                     <Option key="android-10" value="Android 10">Android 10</Option>
                     <Option key="android-11" value="Android 11">Android 11</Option>
                     <Option key="android-12" value="Android 12">Android 12</Option>
@@ -362,7 +363,7 @@ function NewVMForm(props) {
             <Row>
               <Col span={24}>
                 <Form.Item name="cmdline" label="Launcher Command-line" >
-                  <Input.TextArea spellcheck="false" style={{fontFamily: "Courier New"}}/>
+                  <Input.TextArea spellCheck="false" style={{fontFamily: "Courier New"}}/>
                 </Form.Item>
               </Col>
             </Row>

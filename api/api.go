@@ -483,7 +483,7 @@ func getFilesInFolder(c *gin.Context, fileExtension string, folder string) {
 }
 
 func uploadImageFile(c *gin.Context) {
-	uploadFile(c, []string{".zip", ".tar"}, v.UploadDir)
+	uploadFile(c, []string{".zip", ".tar", ".gz"}, v.UploadDir)
 }
 
 func uploadDeviceFile(c *gin.Context) {

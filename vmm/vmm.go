@@ -354,7 +354,6 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 	//    2. --base_instance_num (added in android_12_gsi for launch_cvd) OR CUTTLEFISH_INSTANCE (as env variable, works for android_gsi_{10-12})
 	launch_cmd := []string{
 		path.Join(HomeDir, "/bin/launch_cvd"),
-		"--nostart_webrtc",
 		"--start_vnc_server",
 		fmt.Sprintf("--vsock_guest_cid=%d", cf_instance+2),
 		fmt.Sprintf("--cpus=%s", cpu),
@@ -362,6 +361,9 @@ func (v *VMM) VMStart(containerName string, isAsync bool, options string, callba
 	}
 	launch_cmd = append(launch_cmd, cmdline)
 
+	if aospVersion != "Android 9" {
+		launch_cmd = append(launch_cmd, "--nostart_webrtc")
+	}
 	if aospVersion == "Android 12" {
 		launch_cmd = append(launch_cmd, "--report_anonymous_usage_stats=y")
 	}
