@@ -84,6 +84,7 @@ type VMItem struct {
 	CPU        int      `json:"cpu"`
 	RAM        int      `json:"ram"`
 	OSVersion  string   `json:"os_version"`
+	Cmdline    string   `json:"cmdline"` //launch_cvd options
 }
 
 type VMStatus int
@@ -569,6 +570,7 @@ func (v *VMM) VMList() ([]VMItem, error) {
 			CPU:        cpu,
 			RAM:        ram,
 			Tags:       tags,
+			Cmdline:    v.KVStore.GetContainerValueOrEmpty(containerName, CONFIG_KEY_CMDLINE),
 		})
 	}
 	return resp, nil
@@ -761,6 +763,14 @@ func (v *VMM) ContainerReadFile(containerName string, filePath string) (io.ReadC
 		return nil, err
 	}
 	return rc, nil
+}
+
+// ContainerUpdateConfig updates a container's config in the local KVStore
+func (v *VMM) ContainerUpdateConfig(containerName string, key string, value string) error {
+	if err := v.isManagedRunningContainer(containerName); err != nil {
+		return err
+	}
+	return v.KVStore.PutContainterValue(containerName, []KeyValue{{key, value}})
 }
 
 // getNextCFInstanceNumber returns the next smallest cf_instance number that have not been assigned.

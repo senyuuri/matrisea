@@ -184,6 +184,7 @@ function DeviceDetail(){
           </Breadcrumb>
         </Row>
         <MyPageHeader/>
+
         <Row gutter={{ xs: 8, sm: 16, md: 24, lg: 32 }} key="3" id="detail-flex-content">
           <Col span={6}>
             { deviceDescription !== "" && "status" in deviceDetail && deviceDetail["status"] === 1 ?
@@ -194,6 +195,7 @@ function DeviceDetail(){
               </Spin>
             }
           </Col>
+
           <Col span={18}>
             <Menu mode="horizontal" onClick={handleMenuClick} selectedKeys={menuCurrent}>
               <Menu.Item key="terminal" icon={<InteractionOutlined />}> Terminal</Menu.Item>
@@ -205,8 +207,13 @@ function DeviceDetail(){
               <Menu.Item key="connection" icon={<LaptopOutlined />}> Connection </Menu.Item>
               <Menu.Item key="settings" icon={<SettingOutlined />}> Settings </Menu.Item>
             </Menu>
+
+            {/* When WebTerminal and LazyLog are not selected, they are hidden instead of being dismounted as they need to maintain 
+                respective websocket connections with the server. This also allows the user to 'save' his session while browsing
+                through other menu items.
+            */}
             <WebTerminal deviceName={device_name} isHidden={menuCurrent==="terminal" ? false : true}/>
-            <div id="menu-content-log" style={{display: menuCurrent.startsWith("log") ? 'block' : 'none', height: "100%"}}>
+            <div id="menu-content-log" style={{display: menuCurrent.startsWith("log") ? 'block' : 'none'}} className="detail-tab-content">
               {/* // TODO ScrollFollow is not working probably known bug pending PR merge
                   // https://github.com/mozilla-frontend-infra/react-lazylog/pull/41/files */}
               <ScrollFollow
@@ -216,15 +223,10 @@ function DeviceDetail(){
                 )}
               />
             </div>
+
 						{menuCurrent==="files" ? <FileExplorer deviceName={device_name}/> : '' }
-						{menuCurrent==="connection" ? 
-							<Connection
-								cf_instance={cf_instance}
-								deviceDetail={deviceDetail}
-							/> 
-							: '' 
-						}
-						{menuCurrent==="settings" ? <Settings/> : '' }
+						{menuCurrent==="connection" ? <Connection cf_instance={cf_instance} deviceDetail={deviceDetail}/> : '' }
+						{menuCurrent==="settings" ? <Settings  deviceName={device_name} deviceDetail={deviceDetail}/> : '' }
           </Col>
         </Row>
       </QueueAnim>

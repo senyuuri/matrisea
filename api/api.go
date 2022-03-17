@@ -147,6 +147,7 @@ func main() {
 		v1.GET("/vms/:name/apks", getApkFileList)
 		v1.GET("/vms/:name/dir", getWorkspaceFileList)
 		v1.GET("/vms/:name/files", downloadWorkspaceFile)
+		v1.POST("/vms/:name/config", updateVMConfig)
 		v1.DELETE("/vms/:name", removeVM)
 		v1.GET("/vms/:name/ws", TerminalHandler)           // websocket
 		v1.GET("/vms/:name/log/:source", LogStreamHandler) // websocket
@@ -449,6 +450,34 @@ func removeVM(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"message": "ok"})
+}
+
+type ConfigKV struct {
+	key   string `json:"key"`
+	value string `json:"value"`
+}
+
+// TODO accept multiple key-value pairs
+func updateVMConfig(c *gin.Context) {
+	name := CFPrefix + c.Param("name")
+	json := make(map[string]interface{})
+	c.BindJSON(&json)
+
+	fmt.Println(json)
+	if json["key"] == vmm.CONFIG_KEY_CMDLINE {
+		err := v.ContainerUpdateConfig(name, vmm.CONFIG_KEY_CMDLINE, fmt.Sprintf("%v", json["value"]))
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"message": err.Error(),
+			})
+			return
+		}
+		c.JSON(200, gin.H{"message": "ok"})
+		return
+	}
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		"message": "invalid config key",
+	})
 }
 
 func getSystemImageList(c *gin.Context) {
