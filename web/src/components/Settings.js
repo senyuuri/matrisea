@@ -1,10 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { Menu, Row, Col, Typography, Table, Form, Input, Button, message} from 'antd';
 import {InfoCircleOutlined, SettingOutlined} from '@ant-design/icons';
 import axios from 'axios';
 
 const { Text } = Typography;
-const { TextArea } = Input;
 
 function Settings({deviceName, deviceDetail}){
   const API_ENDPOINT = window.location.protocol+ "//"+  window.location.hostname + ":" + process.env.REACT_APP_API_PORT + "/api/v1"

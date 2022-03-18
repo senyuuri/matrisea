@@ -16,6 +16,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var v *VMM
@@ -188,33 +189,34 @@ func TestVMList(t *testing.T) {
 	assert.Equal(t, 1, len(cfList))
 }
 
-// Test the full cycle from downloading images to start/stop the VM
+// Test the full cycle from downloading aosp-main images from Android CI to start/stop the VM.
+// Use require instead of assert to fail fast.
 // Note: this could take 2-5 minutes depends on network conditions
 func TestVMMIntegration(t *testing.T) {
 	err := v.VMPreBootSetup(containerName)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	cid, err := v.getContainerIDByName(containerName)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	cmd := exec.Command("bash", "-c", fmt.Sprintf("docker exec %s ps aux | grep -q [w]ebsockify", cid))
-	assert.Nil(t, cmd.Run())
+	require.Nil(t, cmd.Run())
 
 	clist, err := v.listCuttlefishContainers()
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	var container types.Container
 	for _, c := range clist {
 		if cid == c.ID {
 			container = c
 		}
 	}
-	assert.NotNil(t, container)
+	require.NotNil(t, container)
 	status, _ := v.getVMStatus(container)
-	assert.Equal(t, VMReady, status)
+	require.Equal(t, VMReady, status)
 
 	// Download the latest system and cvd images
 	log.Println("Start download-aosp.sh")
 	cmd = exec.Command("cp", "download-aosp.sh", v.UploadDir)
-	assert.Nil(t, cmd.Run())
+	require.Nil(t, cmd.Run())
 	cmd = exec.Command("bash", "-c", "set -x && ./download-aosp.sh -A -C -D -K -X -a $(uname -m)")
 	cmd.Dir = v.UploadDir
 	stdout, _ := cmd.StdoutPipe()
@@ -225,37 +227,37 @@ func TestVMMIntegration(t *testing.T) {
 		m := scanner.Text()
 		fmt.Print(m + " ")
 	}
-	assert.Nil(t, cmd.Wait())
+	require.Nil(t, cmd.Wait())
 
 	// Get the filename of the system image
 	systemImage := ""
 	err = filepath.Walk(v.UploadDir, func(path string, info os.FileInfo, err error) error {
-		assert.Nil(t, err)
+		require.Nil(t, err)
 		fileName := filepath.Base(path)
 		if strings.HasPrefix(fileName, "aosp_cf_x86_64_phone-img-") {
 			systemImage = fileName
 		}
 		return nil
 	})
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	// Load system and CVD images
 	err = v.VMLoadFile(containerName, path.Join(v.UploadDir, systemImage))
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	err = v.VMUnzipImage(containerName, systemImage)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 	err = v.VMLoadFile(containerName, path.Join(v.UploadDir, "cvd-host_package.tar.gz"))
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	// Try start and stop the VM
 	err = v.VMStart(containerName, false, "", func(lines string) {
 		fmt.Println(lines)
 	})
-	assert.Nil(t, err)
+	require.Nil(t, err)
 
 	status, _ = v.getVMStatus(container)
-	assert.Equal(t, VMRunning, status)
+	require.Equal(t, VMRunning, status)
 
 	err = v.VMStop(containerName)
-	assert.Nil(t, err)
+	require.Nil(t, err)
 }
