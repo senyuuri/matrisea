@@ -30,9 +30,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: System info
-      run: df -h
-
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
@@ -54,6 +51,9 @@ jobs:
     runs-on: [self-hosted, linux, X64]
     needs: go-build
     steps:
+    - name: System info
+      run: df -h
+
     - name: Test vmm
       working-directory: ./vmm
       run: go test -v ./... -coverprofile=coverage.out

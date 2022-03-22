@@ -69,7 +69,7 @@ if systemctl status open-vm-tools.service | grep -q "Active: active"; then
 fi
 
 if ! modprobe vhost_vsock vhost_net; then
-    exit_w_err "Failed to load vosk modules. Make sure the host kernel is compiled with `CONFIG_VHOST_VSOCK` and `CONFIG_VHOST_NET`"
+    exit_w_err "Failed to load vosk modules. Make sure the host kernel is compiled with CONFIG_VHOST_VSOCK and CONFIG_VHOST_NET"
 fi
 
 echo "[Install] Install system-level tools and dependencies..."

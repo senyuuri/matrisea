@@ -897,7 +897,14 @@ func (v *VMM) startADBDaemon(containerName string) error {
 }
 
 func (v *VMM) installTools(containerName string) error {
-	resp, err := v.containerExec(containerName, "apt install -y -qq adb git htop python3-pip iputils-ping less websockify", "root")
+	resp, err := v.containerExec(containerName, "apt update", "root")
+	if err != nil {
+		return errors.Wrap(err, "failed to apt update")
+	}
+	if resp.ExitCode != 0 {
+		return errors.New("Failed to apt update. reason:" + resp.errBuffer.String())
+	}
+	resp, err = v.containerExec(containerName, "apt install -y -qq adb git htop python3-pip iputils-ping less websockify", "root")
 	if err != nil {
 		return errors.Wrap(err, "failed to execute apt install")
 	}
