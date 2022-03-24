@@ -43,17 +43,22 @@ if ! which lsb_release &>/dev/null || ! lsb_release -d |grep -q "Ubuntu\|Raspbia
 fi
 
 echo "[Dependency] Checking CPU VT support..."
-if lscpu | grep -q arm; then
-  echo ">>>>>> ARM detected. Notice virtualization support is only added since ARMv7-A. <<<<<<"
+if lscpu | grep -q ARM; then
+  echo "===| ARM detected. Notice virtualization support is available on ARMv7-A and above. <<<<<<"
 else
   if grep -c -w 'vmx\|svm' /proc/cpuinfo | grep -q "0"; then
-    exit_w_err "CPU virtualization not enabled. If you're running in a VM, make sure it supports nested-virtualisation"
+    exit_w_err "===| CPU virtualization not enabled. If you're running in a VM, make sure it supports nested-virtualisation"
   fi
+fi
+
+echo "[Dependency] Checking KVM..."
+if ! ls /dev/kvm then
+  exit_w_err "===| KVM not supported. Make sure the host kernel is compiled with KVM support. See https://www.linux-kvm.org/page/Tuning_Kernel"
 fi
 
 echo "[Dependency] Checking docker..."
 if ! which docker &>/dev/null || ! docker ps |grep -q "CONTAINER"; then
-  exit_w_err "Docker is not installed or is not accessible from the current user. Forgot to add the user to the docker group?"
+  exit_w_err "===| Docker is not installed or is not accessible from the current user. Forgot to add the user to the docker group?"
 fi
 
 echo "[Dependency] Load vsock kernel modules..."
@@ -69,11 +74,11 @@ if systemctl status open-vm-tools.service | grep -q "Active: active"; then
 fi
 
 if ! modprobe vhost_vsock vhost_net; then
-    exit_w_err "Failed to load vosk modules. Make sure the host kernel is compiled with CONFIG_VHOST_VSOCK and CONFIG_VHOST_NET"
+    exit_w_err "===| Failed to load vosk modules. Make sure the host kernel is compiled with CONFIG_VHOST_VSOCK and CONFIG_VHOST_NET"
 fi
 
 echo "[Install] Install system-level tools and dependencies..."
-apt install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper-compat golang config-package-dev init-system-helpers=1.5\*
+apt install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper-compat golang config-package-dev
 
 echo "[Install] Downloading android-cuttlefish and adeb..."
 sudo -u $real_user mkdir -p deps; cd deps; 
@@ -89,7 +94,7 @@ fi
 echo "[Install] Building and installing cuttlefish debian package..."
 cd android-cuttlefish 
 debuild -i -us -uc -b
-dpkg -i ../cuttlefish-common_*_*64.deb || apt install -f
+dpkg -i ../cuttlefish-common_*_*64.deb || apt install -q -f
 usermod -aG kvm,cvdnetwork,render $USER
 sudo -u $real_user cp ../cuttlefish-*.deb ./out/
 

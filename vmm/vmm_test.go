@@ -28,14 +28,13 @@ var dataDir string
 func TestMain(m *testing.M) {
 	setup()
 	retCode := m.Run()
-	//cleanup()
+	cleanup()
 	os.Exit(retCode)
 }
 
 // Pre-test setup which also invokes NewVMM, VMCreate
 func setup() {
 	rand.Seed(time.Now().UnixNano())
-	fmt.Println("NEWWWWWWWWWWWWW")
 	testBatch := "matrisea-test-" + randSeq(6) + "-"
 	var err error
 	dataDir, err = ioutil.TempDir("", testBatch)
