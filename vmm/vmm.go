@@ -143,7 +143,7 @@ func NewVMMImpl(dataDir string, cfPrefix string, bootTimeout time.Duration) *VMM
 	}
 	for _, f := range folders {
 		if _, err := os.Stat(f); os.IsNotExist(err) {
-			err := os.Mkdir(f, 0755)
+			err := os.MkdirAll(f, 0755)
 			if err != nil {
 				log.Fatalf("Failed to create folder %s. Reason: %v", f, err)
 			}
