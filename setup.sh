@@ -5,7 +5,6 @@
 #
 # @senyuuri
 
-
 warn() {
   echo "Warning: $*" >&2
 }
@@ -26,11 +25,12 @@ if ! [ $(id -u) = 0 ]; then
    exit 1
 fi
 
-if [ $SUDO_USER ]; then
-    real_user=$SUDO_USER
+if [ "$REAL_USER" ]; then
+    real_user="$REAL_USER"
 else
     real_user=$(whoami)
 fi
+echo "Using $REAL_USER as non-root user for unprivileged commands"
 
 echo "[Dependency] Checking OS version..."
 if ! which lsb_release &>/dev/null || ! lsb_release -d |grep -q "Ubuntu\|Raspbian"; then
@@ -52,7 +52,7 @@ else
 fi
 
 echo "[Dependency] Checking KVM..."
-if ! ls /dev/kvm then
+if ! ls /dev/kvm; then
   exit_w_err "===| KVM not supported. Make sure the host kernel is compiled with KVM support. See https://www.linux-kvm.org/page/Tuning_Kernel"
 fi
 
@@ -78,34 +78,41 @@ if ! modprobe vhost_vsock vhost_net; then
 fi
 
 echo "[Install] Install system-level tools and dependencies..."
-apt install -y -q git android-tools-adb android-tools-fastboot build-essential devscripts debhelper-compat golang config-package-dev
+apt install -y -q -f git android-tools-adb android-tools-fastboot build-essential devscripts config-package-dev golang
+if which lsb_release &>/dev/null && lsb_release -d |grep -q "Ubuntu"; then
+  version=$(lsb_release -r | cut -f2)
+  if [[ $version == 18* ]]; then
+    apt install -yq debhelper=13.\* dwz=0.13\*
+  else
+    apt install -yq debhelper
+  fi
+fi
 
 echo "[Install] Downloading android-cuttlefish and adeb..."
-sudo -u $real_user mkdir -p deps; cd deps; 
+sudo -u "$real_user" mkdir -p deps; cd deps; 
 WORKDIR=$(pwd)
 if [[ ! -d "adeb" ]]; then
-  sudo -u $real_user git clone https://github.com/joelagnel/adeb.git
+  sudo -u "$real_user" -H git clone https://github.com/joelagnel/adeb.git
 fi
 
 if [[ ! -d "android-cuttlefish" ]]; then
-  sudo -u $real_user git clone https://github.com/google/android-cuttlefish
+  sudo -u "$real_user" -H git clone https://github.com/google/android-cuttlefish
 fi
 
 echo "[Install] Building and installing cuttlefish debian package..."
 cd android-cuttlefish 
+# reset to 0.9.22 stable
+sudo -u "$real_user" -H git reset --hard bcd9544d95688a2b22cf438e5800e790409d67b7
 debuild -i -us -uc -b
-dpkg -i ../cuttlefish-common_*_*64.deb || apt install -q -f
+dpkg -i ../cuttlefish-common_*_*64.deb || apt install -q -f -y
 usermod -aG kvm,cvdnetwork,render $USER
-sudo -u $real_user cp ../cuttlefish-*.deb ./out/
+sudo -u "$real_user" cp ../cuttlefish-*.deb ./out/
 
 echo "[Install] Building cuttlefish VM image..."
-sudo -u $real_user ./build.sh --verbose
+sudo -u "$real_user" ./build.sh --verbose
 cd "${WORKDIR}"; 
 
 echo ""
 echo "REBOOT REQUIRED: Matrisea installed successfully. Reboot to load additional kernel modules and apply udev rules."
 echo ""
-echo "After reboot, run docker-compose up and visit the url below to access the web panel:"
-echo ""
-echo "      http://127.0.0.1:10080/"
-echo ""
+echo "After reboot, run docker-compose up and visit the http://[your-host-ip]:3000"

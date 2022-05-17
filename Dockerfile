@@ -1,11 +1,10 @@
-FROM golang:1.16
-WORKDIR /go/src/sea.com/matrisea
-COPY api .
-COPY vmm .
-RUN cd api && go build -o ../api-server .
+FROM golang:1.18
+WORKDIR /root
+COPY . .
+RUN cd api && CGO_ENABLED=0 go build -o /root/api_server -v ./...
 
-FROM alpine:latest  
+FROM alpine:latest
 RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=0 /go/src/sea.com/matrisea/api-server .
-CMD ["./api-server"]
+WORKDIR /root
+COPY --from=0 /root/api_server .
+CMD ["./api_server"]

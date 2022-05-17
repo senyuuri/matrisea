@@ -1,6 +1,7 @@
-# local data 
+# local data
+.DS_Store
 deps
-data
+matrisea-data
 
 # go misc
 vmm/vmm
@@ -15,3 +16,8 @@ frontend/node_modules
 
 # dev env
 workspace.code-workspace
+
+# vagrant
+.vagrant
+docker-compose-*
+*.log

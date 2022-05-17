@@ -956,7 +956,8 @@ func (v *VMM) containerCopyFile(srcPath string, containerName string, dstPath st
 	defer os.RemoveAll(tmpdir)
 	srcFolder, srcFile := filepath.Split(srcPath)
 
-	cmdStr := fmt.Sprintf("cd %s && tar -cvzf %s/%s.tar %s", srcFolder, tmpdir, srcFile, srcFile)
+	cmdStr := fmt.Sprintf("cd %s && tar -cvzf \"%s/%s.tar\" \"%s\"", srcFolder, tmpdir, srcFile, srcFile)
+	log.Println(cmdStr)
 
 	// TODO read stderr and always print to console
 	cmd := exec.Command("sh", "-c", cmdStr)

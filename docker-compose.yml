@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  apiserver:
+    image: matrisea_api:latest
+    build: .
+    privileged: true
+    network_mode: "host"
+    environment:
+      - DATA_DIR=/matrisea-data
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./matrisea-data:/matrisea-data
+
+  web:
+    image: matrisea_web:latest
+    build:
+      context: web
+    init: true
+    network_mode: "host"
+    

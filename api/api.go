@@ -131,7 +131,10 @@ func main() {
 	router = gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowHeaders = []string{"Origin", "x-requested-with", "content-type"}
-	config.AllowOrigins = []string{"http://localhost:3000", "http://192.168.3.112:3000"}
+	// TODO read from config files
+	config.AllowOriginFunc = func(origin string) bool {
+		return true
+	}
 	router.Use(cors.New(config))
 
 	api := router.Group("/api")
