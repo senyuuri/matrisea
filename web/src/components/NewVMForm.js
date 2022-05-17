@@ -265,7 +265,8 @@ function NewVMForm(props) {
               cpu: 2,
               ram: 4,
               aosp_version: "Android 12",
-              cmdline: "--guest_audit_security=false --guest_enforce_security=false"
+              cmdline: ""
+              //cmdline: "--guest_audit_security=false --guest_enforce_security=false"
             }}
           >
             <Row gutter={16}>
