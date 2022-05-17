@@ -1,3 +1,7 @@
+# Warning: this file is deprecated
+#
+# The Vagrantfile was intend for OS X hosts to run Matrisea in a VirtualBox VM. In such a VM, crosvm failed to 
+# boot the CVD at all regardless of Android versions. The file is therefore archived and only serve as a reference. 
 Vagrant.configure("2") do |config|
     config.vm.network "private_network", type: "dhcp"
     config.vm.define "dev" do |dev|
@@ -6,7 +10,7 @@ Vagrant.configure("2") do |config|
         dev.vm.provider "virtualbox" do |vb|
             vb.customize [
                 'modifyvm', :id, 
-                '--nested-hw-virt', 'on'
+                '--nested-hw-virt', 'on',
                 "--paravirtprovider", "kvm",
             ]
             vb.cpus = 8

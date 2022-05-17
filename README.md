@@ -30,7 +30,7 @@
 
 ### System Requirements
 - Hardware: Any modern CPUs with virtualization extensions (e.g. Intel VT-x/AMD-V/ARMv7-A and above)*/**
-- OS: Debian / Ubuntu 18.04+ (recommended)
+- OS: Debian / Ubuntu 20.04+ (recommended)
 - Host Kernel: compiled with `CONFIG_VHOST_VSOCK` and `CONFIG_VHOST_NET`
 - Packages: Docker, Golang >= 1.17
 
@@ -53,10 +53,11 @@ If you'd like to try Matrisea or run it locally, we recommend to use the provide
 1. Clone the repo and install the required packages. Once finished, reboot to load additional kernel modules.
     ```
     > git clone https://github.com/senyuuri/matrisea
-    > cd matrisea && sudo ./setup.sh
+    > sudo ./setup.sh
     
-    # After reboot
-    >  cd matrisea && docker-compose up
+    # After reboot, specify a local path for storing Matrisea's data. The path must be in its full form i.e. without `~`
+    > cd matrisea && vi .env
+    > docker-compose up
     ```
 
 2. The docker-compose config defaults to use host networks for Matrisea containers. On the host, open the browser and visit `http:\\[your-host-ip]:3000`
