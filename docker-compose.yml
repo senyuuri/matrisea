@@ -7,7 +7,7 @@ services:
     privileged: true
     network_mode: "host"
     environment:
-      - DATA_DIR="${DATA_DIR}"
+      - DATA_DIR=${DATA_DIR}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR}:${DATA_DIR}
