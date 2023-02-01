@@ -9,7 +9,7 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1 // indirect
-	github.com/stretchr/testify v1.6.1
-	go.etcd.io/bbolt v1.3.6
+	github.com/stretchr/testify v1.8.1
+	go.etcd.io/bbolt v1.3.7
 	google.golang.org/grpc v1.38.0 // indirect
 )
